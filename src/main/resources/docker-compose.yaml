@@ -1,0 +1,22 @@
+version: '3.9'
+services:
+  db:
+    ports:
+      - "2004:5432"
+    image: postgres:latest
+    container_name: naji-db
+    environment:
+      POSTGRES_DB: NajiDB
+      POSTGRES_USER: Naji
+      POSTGRES_PASSWORD: NajiTheGame
+    volumes:
+      - naji-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  naji-data:

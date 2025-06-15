@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: naji
+  datasource:
+    url: jdbc:postgresql://localhost:2004/NajiDB
+    username: Naji
+    password: NajiTheGame
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+  profiles:
+    active: ai
+logging:
+  level:
+    org.springframework.security: debug
+    org.springframework.validation: debug

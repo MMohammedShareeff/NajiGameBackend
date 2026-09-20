@@ -1,10 +1,7 @@
 package com.naji.player;
 
 import com.naji.exception.ExceptionsMessages;
-import com.naji.exception.exceptions.FieldsMisMatchException;
-import com.naji.exception.exceptions.ResourceNotFoundException;
-import com.naji.exception.exceptions.TokenNotValidException;
-import com.naji.exception.exceptions.ValueViolationsException;
+import com.naji.exception.exceptions.*;
 import com.naji.redis.RedisService;
 import com.naji.room.Room;
 import com.naji.room.RoomRepository;
@@ -19,6 +16,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -95,18 +93,18 @@ public class PlayerServiceImpl implements PlayerService {
     }
 
     @Override
-    public void resetPassword(ResetPasswordRequest resetRequest){
+    public void resetPassword(ResetPasswordRequest resetRequest) {
         String password1 = resetRequest.getNewPassword();
-        String password2 =  resetRequest.getNewPasswordAgain();
+        String password2 = resetRequest.getNewPasswordAgain();
         String email = resetRequest.getEmail();
 
         Player player = getPlayerByEmailOrThrowException(email);
 
-        if(!password1.equals(password2)){
+        if (!password1.equals(password2)) {
             throw new FieldsMisMatchException(ExceptionsMessages.getPasswordsMisMatchMessage());
         }
 
-        if(!VALID_PASSWORD.matcher(password1).matches()){
+        if (!VALID_PASSWORD.matcher(password1).matches()) {
             throw new DataIntegrityViolationException("password: password must have at least a capital letter," +
                     " a letter, and a special symbol.");
         }
@@ -123,15 +121,36 @@ public class PlayerServiceImpl implements PlayerService {
     public void joinRoom(String passCode, String token) {
         boolean isTokenValid = jwtUtils.validateJwtToken(token);
         if (!isTokenValid) {
-            throw new TokenNotValidException("you token is either expired or with wrong format");
+            throw new TokenNotValidException("your token is either expired or with wrong format");
         }
+
         Room room = roomServiceImpl.getRoomByPassCodeOrThrowException(passCode);
 
+        if (Boolean.FALSE.equals(room.getIsActive())) {
+            throw new RoomNotActiveException("This room is no longer active");
+        }
+
         Long playerId = jwtUtils.getPlayerIdFromToken(token);
-        logger.debug(String.format("id extracted from token: %s", playerId));
         Player player = getPlayerByIdOrThrowException(playerId);
 
+        if (room.getPlayers() == null) {
+            room.setPlayers(new ArrayList<>());
+        }
+
+        boolean alreadyInRoom = room.getPlayers().stream()
+                .anyMatch(p -> p.getId().equals(playerId));
+
+        if (alreadyInRoom) {
+            throw new RuntimeException("You are already in this room");
+        }
+
+        if (room.getPlayers().size() >= 5) {
+            throw new RuntimeException("Room is full. Maximum 5 players allowed");
+        }
+
         room.getPlayers().add(player);
+        player.setCurrentGamePassCode(passCode);
+
         roomRepository.save(room);
     }
 
@@ -165,7 +184,7 @@ public class PlayerServiceImpl implements PlayerService {
                 );
     }
 
-    public Player getPlayerByEmailOrThrowException(String email){
+    public Player getPlayerByEmailOrThrowException(String email) {
         return playerRepository.findByEmail(email)
                 .orElseThrow(
                         () -> new ResourceNotFoundException(
@@ -194,16 +213,16 @@ public class PlayerServiceImpl implements PlayerService {
         }
     }
 
-    private void checkPatterns(String userName, String password){
-        if (Objects.nonNull(userName)  && !STARTS_WITH_LETTER.matcher(userName).matches()
+    private void checkPatterns(String userName, String password) {
+        if (Objects.nonNull(userName) && !STARTS_WITH_LETTER.matcher(userName).matches()
                 && Objects.nonNull(password) && !VALID_PASSWORD.matcher(password).matches()) {
             throw new DataIntegrityViolationException("userName: name must start with a letter.\n" +
                     "password: password must have at least a capital letter, a letter, and a special symbol");
         }
-        if(Objects.nonNull(userName)  && !STARTS_WITH_LETTER.matcher(userName).matches() ){
+        if (Objects.nonNull(userName) && !STARTS_WITH_LETTER.matcher(userName).matches()) {
             throw new DataIntegrityViolationException("userName: name must start with a letter.");
         }
-        if(Objects.nonNull(password) && !VALID_PASSWORD.matcher(password).matches()){
+        if (Objects.nonNull(password) && !VALID_PASSWORD.matcher(password).matches()) {
             throw new DataIntegrityViolationException("password: password must have at least a capital letter, a letter, and a special symbol.");
         }
     }

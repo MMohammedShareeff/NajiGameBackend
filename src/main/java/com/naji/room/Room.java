@@ -4,12 +4,9 @@ import com.naji.leaderboard.Leaderboard;
 import com.naji.player.Player;
 import com.naji.round.Round;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import org.springframework.stereotype.Component;
+import lombok.*;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Data
@@ -17,25 +14,39 @@ import java.util.List;
 @NoArgsConstructor
 @Builder
 @Entity
+@Table(name = "room")
 public class Room {
+
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "room_seq")
+    @SequenceGenerator(name = "room_seq", sequenceName = "room_seq", allocationSize = 50)
     private Long id;
 
+    @Column(name = "pass_code", unique = true, nullable = false)
     private String passCode;
 
-    @OneToMany(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<Player> players;
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "room_players",
+            joinColumns = @JoinColumn(name = "room_id"),
+            inverseJoinColumns = @JoinColumn(name = "player_id")
+    )
+    @Builder.Default
+    private List<Player> players = new ArrayList<>();
 
-    private Boolean isActive;
+    private Boolean isActive = true;
 
     @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<Round> rounds;
+    @Builder.Default
+    private List<Round> rounds = new ArrayList<>();
 
     @OneToOne
+    @JoinColumn(name = "admin_id")
     private Player admin;
-    private Integer currentRound;
 
-    @OneToOne(cascade = CascadeType.ALL )
+    private Integer currentRound = 0;
+
+    @OneToOne(cascade = CascadeType.ALL)
+    @JoinColumn(name = "leaderboard_id")
     private Leaderboard leaderboard;
 }

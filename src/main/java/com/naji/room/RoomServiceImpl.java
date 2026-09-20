@@ -61,13 +61,24 @@ public class RoomServiceImpl implements RoomService {
         Room room = getRoomByPassCodeOrThrowException(passCode);
         Player player = playerServiceImpl.getPlayerByUserNameOrThrowException(userName);
 
-        if (room.getPlayers().size() >= 5)
-            throw new RuntimeException("Room is full. Room capacity is at most 5");
+        if (room.getPlayers() == null) {
+            room.setPlayers(new ArrayList<>());
+        }
 
-        logger.debug(String.format("room players before adding: %s ", room.getPlayers().size()));
+        if (room.getPlayers().size() >= 5) {
+            throw new RuntimeException("Room is full. Room capacity is at most 5");
+        }
+
+        boolean alreadyInRoom = room.getPlayers().stream()
+                .anyMatch(p -> p.getId().equals(player.getId()));
+
+        if (alreadyInRoom) {
+            throw new RuntimeException("Player is already in this room");
+        }
+
         room.getPlayers().add(player);
-        logger.debug(String.format("room players before adding: %s ", room.getPlayers().size()));
         player.setCurrentGamePassCode(passCode);
+
         return roomRepository.save(room);
     }
 
@@ -96,9 +107,11 @@ public class RoomServiceImpl implements RoomService {
     }
 
     private String generatePassCode() {
-        Long passCodeNumber = roomRepository.getNextPassCodeNumber();
-        String passCodeString = "Room-" + RandomStringUtils.randomAlphabetic(4);
+        String passCode;
+        do {
+            passCode = "Room-" + RandomStringUtils.randomAlphanumeric(6).toUpperCase();
+        } while (roomRepository.findByPassCode(passCode).isPresent());
 
-        return passCodeString + passCodeNumber;
+        return passCode;
     }
 }

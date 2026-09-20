@@ -8,7 +8,6 @@ import java.util.Optional;
 
 @Repository
 public interface RoomRepository extends JpaRepository<Room, Long> {
-    Optional<Room>findByPassCode(String passCode);
-    @Query(value = "SELECT nextval('passcode_sequence')", nativeQuery = true)
-    Long getNextPassCodeNumber();
+    Optional<Room> findByPassCode(String passCode);
+
 }

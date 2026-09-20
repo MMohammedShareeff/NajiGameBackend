@@ -13,7 +13,6 @@ import lombok.*;
 @Table(name = "dashboard")
 public class Dashboard {
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE)
     private Long id;
 
     @OneToOne

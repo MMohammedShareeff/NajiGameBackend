@@ -1,20 +1,24 @@
 springdoc:
   show-actuator: true
 spring:
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migrations
   application:
     name: naji
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:2004/NajiDB}
-    username: ${SPRING_DATASOURCE_USERNAME:Naji}
-    password: ${SPRING_DATASOURCE_PASSWORD:NajiTheGame}
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
   jpa:
     hibernate:
-      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}
     show-sql: true
   data:
     redis:
-      host: ${SPRING_DATA_REDIS_HOST:localhost}
-      port: ${SPRING_DATA_REDIS_PORT:6379}
+      host: ${SPRING_DATA_REDIS_HOST}
+      port: ${SPRING_DATA_REDIS_PORT}
   mail:
     host: ${SPRING_MAIL_HOST:smtp.gmail.com}
     port: ${SPRING_MAIL_PORT:587}
@@ -51,3 +55,4 @@ logging:
   level:
     org.springframework.security: debug
     org.springframework.validation: debug
+    org.flywaydb: debug

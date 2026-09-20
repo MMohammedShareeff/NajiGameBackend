@@ -2,9 +2,9 @@ package com.naji.redis;
 
 import com.naji.player.PlayerRequest;
 import lombok.AllArgsConstructor;
+import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -14,10 +14,11 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @Configuration
 @AllArgsConstructor
 public class RedisConfig {
+    private final RedisProperties redisProperties;
 
     @Bean
     RedisConnectionFactory redisConnectionFactory(){
-        return new LettuceConnectionFactory("localhost", 6379);
+        return new LettuceConnectionFactory(redisProperties.getHost(), redisProperties.getPort());
     }
 
     @Bean

@@ -3,6 +3,7 @@ package com.naji.email;
 import com.naji.exception.ExceptionsMessages;
 import com.naji.exception.exceptions.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.scheduling.annotation.Async;
@@ -13,11 +14,12 @@ import java.util.Objects;
 @RequiredArgsConstructor
 @Service
 public class EmailService {
+    @Autowired
     private final JavaMailSender mailSender;
 
     @Async
-    public void sendEmail(String email, String subject, String body){
-        if(Objects.isNull(email) || email.isEmpty()){
+    public void sendEmail(String email, String subject, String body) {
+        if (Objects.isNull(email) || email.isEmpty()) {
             throw new ResourceNotFoundException(ExceptionsMessages.getResourceNotFoundMessage(String.class));
         }
         SimpleMailMessage message = new SimpleMailMessage();

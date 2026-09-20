@@ -1,7 +1,7 @@
 services:
   app:
     build:
-      context: ../../..
+      context: .
       dockerfile: Dockerfile
     container_name: naji-app
     ports:
@@ -13,17 +13,11 @@ services:
       SPRING_DATASOURCE_PASSWORD: NajiTheGame
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRATION: ${JWT_EXPIRATION}
+      JWT_SECRET: bmFqaUdhbWVTZWNyZXRzdXJ2aXZhbGtlZXBzZWNyZXQyMDI0c1VtbWVyT25saW5lTXVsdGlQbEF5ZXJHYW1laW50ZXJuc2hpcA==
+      JWT_EXPIRATION_MS: 86400000
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME}
-      SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD}
-    healthcheck:
-      test: [ "CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
+      SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME:-}
+      SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD:-}
     depends_on:
       db:
         condition: service_healthy

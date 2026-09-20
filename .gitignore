@@ -4,7 +4,7 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 src/main/resources/application-dev.yaml
-.env
+src/main/resources/.env
 
 ### STS ###
 .apt_generated

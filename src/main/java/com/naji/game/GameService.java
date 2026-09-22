@@ -51,6 +51,7 @@ public class GameService {
 
     @Transactional
     public void startGame(String passCode, String token) {
+
         room = roomRepository.findByPassCode(passCode)
                 .orElseThrow(
                         () -> new ResourceNotFoundException(

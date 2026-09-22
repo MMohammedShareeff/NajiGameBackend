@@ -29,6 +29,11 @@ public class PlayerController {
     private final JWTUtils jwtUtils;
     private final AuthenticationManager authenticationManager;
 
+    @GetMapping("/all")
+    public ApiResponse<?> getAllPlayers() {
+        return new ApiResponse<>(playerService.getAllPlayers(), HttpStatus.OK);
+    }
+
     @PostMapping("/register")
     public ApiResponse<String> registerPlayer(@Validated(OnCreate.class) @RequestBody PlayerRequest playerRequest) {
         playerService.registerPlayer(playerRequest);
@@ -45,18 +50,17 @@ public class PlayerController {
     @PutMapping("/update")
     public ApiResponse<String> updatePlayer(@RequestBody @Validated(OnUpdate.class) PlayerRequest playerRequest,
                                             @RequestHeader("Authorization") String authHeader) {
-       try{
-           String token = jwtUtils.getTokenFromHeader(authHeader);
-          playerService.updatePlayer(playerRequest, token);
-           return new ApiResponse<>("email verification is required, check your email", HttpStatus.OK);
-       }
-       catch(TokenNotValidException ex) {
-           return new ApiResponse<>(ex.getMessage(), HttpStatus.UNAUTHORIZED);
-       }
+        try {
+            String token = jwtUtils.getTokenFromHeader(authHeader);
+            playerService.updatePlayer(playerRequest, token);
+            return new ApiResponse<>("email verification is required, check your email", HttpStatus.OK);
+        } catch (TokenNotValidException ex) {
+            return new ApiResponse<>(ex.getMessage(), HttpStatus.UNAUTHORIZED);
+        }
     }
 
     @PutMapping("/reset-password")
-    public ApiResponse<?> resetPassword(@Validated(OnCreate.class) @RequestBody  ResetPasswordRequest resetRequest){
+    public ApiResponse<?> resetPassword(@Validated(OnCreate.class) @RequestBody ResetPasswordRequest resetRequest) {
         playerService.resetPassword(resetRequest);
         return new ApiResponse<>("email verification required, check your email", HttpStatus.OK);
     }

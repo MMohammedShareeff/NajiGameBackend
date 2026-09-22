@@ -1,51 +1,62 @@
 package com.naji.openai;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-@Slf4j
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 @Component
 public class JsonResponseMapper {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    public static final String SURVIVED = "Survived";
+    public static final String NOT_SURVIVED = "Not Survived";
+    public static final String UNKNOWN = "Unknown";
+    private static final String NUMBER = "(?<![\\d.])(\\d{1,2}(?:\\.\\d+)?)";
+    private static final Pattern MARKED_RATING =
+            Pattern.compile("(?i)rating\\s*[:=]?\\s*" + NUMBER + "\\s*/\\s*10(?!\\d)");
+    private static final Pattern ANY_RATING = Pattern.compile(
+            "(?i)" + NUMBER + "\\s*(?:/\\s*10(?!\\d)|out\\s+of\\s+10(?!\\d))");
+    private static final Pattern MARKED_RESULT =
+            Pattern.compile("(?i)result\\s*[:=]\\s*\\W*(not\\s+survived|survived)");
+    private static final Pattern ANY_VERDICT = Pattern.compile(
+            "(?i)\\b(not\\s+survived|did\\s+not\\s+survive|didn'?t\\s+survive|survived)\\b");
 
-    public String extractStatus(String jsonResponse) {
-        try {
-            OpenAiResponse response = objectMapper.readValue(jsonResponse, OpenAiResponse.class);
-            String content = response.getChoices().get(0).getMessage().getContent();
-
-            if(content.contains("Survived")){
-                return "Survived";
-            }
-            else if (content.contains("Not Survived")){
-                return "Not Survived";
-            }
-            else{
-                return "Unknown";
-            }
+    public String extractStatus(String answer) {
+        if (answer == null || answer.isBlank()) {
+            return UNKNOWN;
         }
-        catch (Exception e) {
-            log.error(e.getMessage());
-            return "not found";
+        String verdict = lastGroup(MARKED_RESULT, answer);
+        if (verdict == null) {
+            verdict = lastGroup(ANY_VERDICT, answer);
         }
+        if (verdict == null) {
+            return UNKNOWN;
+        }
+        String v = verdict.toLowerCase();
+        return v.startsWith("not") || v.startsWith("did") ? NOT_SURVIVED : SURVIVED;
     }
 
-    public int extractRating(String jsonResponse) {
-        try {
-        OpenAiResponse response = objectMapper.readValue(jsonResponse, OpenAiResponse.class);
-        String content = response.getChoices().get(0).getMessage().getContent();
-        int rating = content.indexOf("Survived ") + 9;
-        if(content.contains("/10") && rating >= 0){
-            return Integer.valueOf(content.substring(rating, content.indexOf("/10")+ 3));
-        }
-        else {
+    public int extractRating(String answer) {
+        if (answer == null || answer.isBlank()) {
             return -1;
         }
+        String number = lastGroup(MARKED_RATING, answer);
+        if (number == null) {
+            number = lastGroup(ANY_RATING, answer);
         }
-        catch (Exception e) {
-            log.error(e.getMessage());
+        if (number == null) {
             return -1;
         }
+        long rating = Math.round(Double.parseDouble(number));
+        return (int) Math.max(0, Math.min(10, rating));
+    }
+
+    private static String lastGroup(Pattern pattern, String text) {
+        Matcher m = pattern.matcher(text);
+        String last = null;
+        while (m.find()) {
+            last = m.group(1);
+        }
+        return last;
     }
 }

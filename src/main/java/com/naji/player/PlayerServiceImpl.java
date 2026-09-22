@@ -17,6 +17,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -48,6 +49,12 @@ public class PlayerServiceImpl implements PlayerService {
         this.roomRepository = roomRepository;
         this.jwtUtils = jwtUtils;
         this.redisService = redisService;
+    }
+
+    @Transactional
+    @Override
+    public List<Player> getAllPlayers() {
+        return playerRepository.findAll();
     }
 
     @Transactional

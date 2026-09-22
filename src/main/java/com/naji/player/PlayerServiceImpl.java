@@ -53,8 +53,10 @@ public class PlayerServiceImpl implements PlayerService {
 
     @Transactional
     @Override
-    public List<Player> getAllPlayers() {
-        return playerRepository.findAll();
+    public List<PlayerResponse> getAllPlayers() {
+        return playerRepository.findAll().stream()
+                .map(PlayerMapper::toResponse)
+                .toList();
     }
 
     @Transactional

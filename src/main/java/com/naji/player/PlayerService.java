@@ -5,7 +5,7 @@ import java.util.List;
 public interface PlayerService {
     void registerPlayer(PlayerRequest playerRequest);
 
-    List<Player> getAllPlayers();
+    List<PlayerResponse> getAllPlayers();
 
     void updatePlayer(PlayerRequest playerRequest, String token);
 

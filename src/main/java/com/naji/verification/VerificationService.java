@@ -48,6 +48,54 @@ public class VerificationService {
     }
 
     @Transactional
+    public UpdateStep verifyProfileUpdate(String verificationCode, String token) {
+        if (!jwtUtils.validateJwtToken(token)) {
+            throw new TokenNotValidException("you token is either expired or with wrong format");
+        }
+
+        Long playerId = jwtUtils.getPlayerIdFromToken(token);
+        Player player = playerServiceImpl.getPlayerByIdOrThrowException(playerId);
+        PlayerRequest pending = redisService.getPendingUpdate(playerId);
+        String stage = redisService.getUpdateStage(playerId);
+
+        if (pending == null || stage == null) {
+            throw new IllegalStateException("There is no pending profile change, or it expired. Please start again.");
+        }
+
+        boolean emailChanges = Objects.nonNull(pending.getEmail())
+                && !pending.getEmail().equalsIgnoreCase(player.getEmail());
+
+        if ("OLD_EMAIL".equals(stage)) {
+            if (!redisService.validateVerificationCode(player.getEmail(), verificationCode)) {
+                return UpdateStep.INVALID_CODE;
+            }
+            redisService.deleteVerificationCode(player.getEmail());
+
+            if (emailChanges) {
+                redisService.saveUpdateStage(playerId, "NEW_EMAIL");
+                redisService.saveVerificationCode(pending.getEmail());
+                return UpdateStep.NEW_EMAIL_CODE_SENT;
+            }
+        } else {
+            if (!redisService.validateVerificationCode(pending.getEmail(), verificationCode)) {
+                return UpdateStep.INVALID_CODE;
+            }
+            redisService.deleteVerificationCode(pending.getEmail());
+        }
+
+        updatePlayerDetails(player, pending);
+        playerRepository.save(player);
+        redisService.clearPendingUpdate(playerId);
+        return UpdateStep.UPDATED;
+    }
+
+    public enum UpdateStep {
+        INVALID_CODE,
+        NEW_EMAIL_CODE_SENT,
+        UPDATED
+    }
+
+    @Transactional
     public boolean updateAndVerify(String email, String verificationCode,  String token){
        boolean validToken =  jwtUtils.validateJwtToken(token);
        if(!validToken)

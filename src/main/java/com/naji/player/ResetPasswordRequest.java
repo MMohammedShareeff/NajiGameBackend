@@ -17,7 +17,7 @@ public class ResetPasswordRequest {
             message = "Invalid email format",
             groups = {OnUpdate.class, OnCreate.class}
     )
-    private final String email;
+    private String email;
 
     @NotBlank(
             message = "please provide a password for your account",

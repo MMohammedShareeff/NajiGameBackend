@@ -11,6 +11,7 @@ public interface RoomService {
      Room createRoom(String token);
      Room addPlayerToRoom(String passCode, String userName);
      void KickPlayerFromRoom(String passCode, Long requesterId, String playerName);
+     void leaveRoom(String passCode, Long playerId);
      Room getRoomByPassCodeOrThrowException(String passCode);
 
 }

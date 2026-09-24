@@ -18,6 +18,20 @@ public class VerificationController {
     private final VerificationService verificationService;
     private final JWTUtils jwtUtils;
 
+    @PostMapping("/verify-update")
+    public ApiResponse<String> verifyProfileUpdate(@RequestParam String verificationCode, HttpServletRequest request) {
+        String token = jwtUtils.getTokenFromHeader(request.getHeader("Authorization"));
+        if (token == null) {
+            return new ApiResponse<>("your token is either expired or with wrong format", HttpStatus.UNAUTHORIZED);
+        }
+
+        return switch (verificationService.verifyProfileUpdate(verificationCode, token)) {
+            case INVALID_CODE -> new ApiResponse<>("Failed to verify, your code is either expired or wrong", HttpStatus.BAD_REQUEST);
+            case NEW_EMAIL_CODE_SENT -> new ApiResponse<>("NEW_EMAIL_CODE_SENT", HttpStatus.OK);
+            case UPDATED -> new ApiResponse<>("UPDATED", HttpStatus.OK);
+        };
+    }
+
     @PostMapping("/verify-email")
     public ApiResponse<String> verifyEmail(@RequestParam String email, @RequestParam String verificationCode,
                                            HttpServletRequest request,
@@ -39,7 +53,7 @@ public class VerificationController {
             catch (TokenNotValidException ex) {
                 return new ApiResponse<>(ex.getMessage(), HttpStatus.FORBIDDEN);
             }
-            isVerified = verificationService.updateAndVerify(email, verificationCode, token);
+            return new ApiResponse<>("use /verification/verify-update to confirm profile changes", HttpStatus.BAD_REQUEST);
         }
         else {
             isVerified = verificationService.verifyAndSavePassword(email, verificationCode);

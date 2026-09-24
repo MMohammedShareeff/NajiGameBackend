@@ -14,6 +14,19 @@ public class GameController {
     private final GameService gameService;
     private final JWTUtils jwtUtils;
 
+    @GetMapping("/state")
+    public ApiResponse<GameStateResponse> getGameState(@RequestParam String passCode, @RequestHeader("Authorization") String authHeader) {
+        String token = jwtUtils.getTokenFromHeader(authHeader);
+        return new ApiResponse<>(gameService.getGameState(passCode, token), HttpStatus.OK);
+    }
+
+    @PostMapping("/stop")
+    public ApiResponse<String> stopGame(@RequestParam String passCode, @RequestHeader("Authorization") String authHeader) {
+        String token = jwtUtils.getTokenFromHeader(authHeader);
+        gameService.stopGame(passCode, token);
+        return new ApiResponse<>("game stopped successfully", HttpStatus.OK);
+    }
+
     @PostMapping("/start")
     public ApiResponse<String> startGame(@RequestParam String passCode, @RequestHeader("Authorization") String authHeader) {
         String token = jwtUtils.getTokenFromHeader(authHeader);

@@ -49,6 +49,14 @@ public class GameService {
     private static final Logger logger = LoggerFactory.getLogger(GameService.class);
 
     private static final Set<Long> RUNNING_ROOM_IDS = ConcurrentHashMap.newKeySet();
+    private static final Map<Long, RoundState> ROUND_STATES = new ConcurrentHashMap<>();
+    private static final Map<Long, Map<String, Long>> ROUND_SUBMISSIONS = new ConcurrentHashMap<>();
+    private static final Map<Long, RoundResultsMessage> LAST_RESULTS = new ConcurrentHashMap<>();
+    private static final Map<Long, String> FINAL_LEADERBOARDS = new ConcurrentHashMap<>();
+    private static final Map<Long, String> STOP_MESSAGES = new ConcurrentHashMap<>();
+    private static final String PHASE_ANSWERING = "answering";
+    private static final String PHASE_JUDGING = "judging";
+    private static final String PHASE_RESULTS = "results";
     private static final int LAST_ROUND = 5;
     private static final int RESULTS_BASE_SECONDS = 3;
     private static final int RESULTS_SECONDS_PER_PLAYER = 8;
@@ -72,10 +80,103 @@ public class GameService {
     private Room room;
     private ScheduledFuture<?> pendingRoundEnd;
 
-    @Transactional
-    public void startGame(String passCode, String token) {
+    private record RoundState(int round, String scenario, long endsAtMillis, String phase) {
+        RoundState withPhase(String newPhase) {
+            return new RoundState(round, scenario, endsAtMillis, newPhase);
+        }
+    }
 
-        room = roomRepository.findByPassCode(passCode)
+    private static void setPhase(Long roomId, String phase) {
+        ROUND_STATES.computeIfPresent(roomId, (id, state) -> state.withPhase(phase));
+    }
+
+    private static void clearRunning(Long roomId) {
+        RUNNING_ROOM_IDS.remove(roomId);
+        ROUND_STATES.remove(roomId);
+        ROUND_SUBMISSIONS.remove(roomId);
+        LAST_RESULTS.remove(roomId);
+    }
+
+    private static List<RoundSubmissionsMessage.SubmissionInfo> submissionInfos(Long roomId) {
+        return ROUND_SUBMISSIONS.getOrDefault(roomId, Map.of()).entrySet().stream()
+                .map(entry -> new RoundSubmissionsMessage.SubmissionInfo(entry.getKey(), entry.getValue()))
+                .sorted(Comparator.comparingLong(RoundSubmissionsMessage.SubmissionInfo::millisIntoRound))
+                .toList();
+    }
+
+    public void onSubmissionRecorded(Long roomId, String playerName) {
+        RoundState state = ROUND_STATES.get(roomId);
+        Map<String, Long> submissions = ROUND_SUBMISSIONS.get(roomId);
+        if (state == null || submissions == null || !PHASE_ANSWERING.equals(state.phase())) {
+            return;
+        }
+
+        long startedAtMillis = state.endsAtMillis() - roundSeconds * 1000L;
+        long millisIntoRound = Math.max(0, System.currentTimeMillis() - startedAtMillis);
+        submissions.putIfAbsent(playerName, millisIntoRound);
+        socketController.broadcastSubmissions(roomId, new RoundSubmissionsMessage(state.round(), submissionInfos(roomId)));
+    }
+
+    @Transactional
+    public GameStateResponse getGameState(String passCode, String token) {
+        Room stateRoom = roomRepository.findByPassCode(passCode)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        ExceptionsMessages.getResourceNotFoundMessage(Room.class)));
+
+        Long playerId = jwtUtils.getPlayerIdFromToken(token);
+        boolean isMember = stateRoom.getPlayers().stream().anyMatch(player -> player.getId().equals(playerId));
+        if (!isMember) {
+            throw new UnauthorizedAccessException(ExceptionsMessages.getUnauthorizedMessage());
+        }
+
+        RoundState state = ROUND_STATES.get(stateRoom.getId());
+        if (!RUNNING_ROOM_IDS.contains(stateRoom.getId()) || state == null) {
+            return GameStateResponse.idle(FINAL_LEADERBOARDS.get(stateRoom.getId()), STOP_MESSAGES.get(stateRoom.getId()));
+        }
+
+        boolean hasSubmitted = roundRepository
+                .findFirstByRoomIdAndNoOfRoundOrderByIdDesc(stateRoom.getId(), state.round())
+                .map(currentRound -> Boolean.TRUE.equals(
+                        submissionRepository.existsByRoundIdAndPlayerId(currentRound.getId(), playerId)))
+                .orElse(false);
+
+        String leaderboardText = null;
+        if (stateRoom.getLeaderboard() != null && (state.round() > 1 || PHASE_RESULTS.equals(state.phase()))) {
+            leaderboardText = leaderboardService.getLeaderboardByRoomPassCode(passCode);
+        }
+
+        long secondsLeft = Math.max(0, (state.endsAtMillis() - System.currentTimeMillis() + 999) / 1000);
+        return new GameStateResponse(true, state.round(), LAST_ROUND, roundSeconds, secondsLeft,
+                state.scenario(), state.phase(), hasSubmitted, leaderboardText, submissionInfos(stateRoom.getId()),
+                PHASE_RESULTS.equals(state.phase()) ? LAST_RESULTS.get(stateRoom.getId()) : null, null, null);
+    }
+
+    public void onPlayersChanged(Long roomId) {
+        if (!RUNNING_ROOM_IDS.contains(roomId)) {
+            return;
+        }
+
+        try {
+            Long roundId = new TransactionTemplate(transactionManager).execute(status ->
+                    roomRepository.findById(roomId)
+                            .filter(currentRoom -> !currentRoom.getPlayers().isEmpty())
+                            .flatMap(currentRoom -> roundRepository
+                                    .findFirstByRoomIdAndNoOfRoundOrderByIdDesc(roomId, currentRoom.getCurrentRound()))
+                            .map(Round::getId)
+                            .orElse(null));
+
+            if (roundId == null) {
+                clearRunning(roomId);
+                return;
+            }
+            triggerEarlyRoundEndIfComplete(roundId, roomId);
+        } catch (Throwable ex) {
+            logger.error("Player change check failed for room {}: {}", roomId, ex.getMessage(), ex);
+        }
+    }
+
+    private Room loadRoomAsAdmin(String passCode, String token) {
+        Room loadedRoom = roomRepository.findByPassCode(passCode)
                 .orElseThrow(
                         () -> new ResourceNotFoundException(
                                 ExceptionsMessages.getResourceNotFoundMessage(Room.class)
@@ -84,8 +185,7 @@ public class GameService {
 
         String userName = jwtUtils.getUserNameFromJwtToken(token);
 
-        Player roomAdmin = room.getAdmin();
-        boolean isAdmin = Optional.ofNullable(roomAdmin)
+        boolean isAdmin = Optional.ofNullable(loadedRoom.getAdmin())
                 .map(
                         admin -> admin.getUserName().equals(userName)
                 )
@@ -97,6 +197,48 @@ public class GameService {
             );
         }
 
+        return loadedRoom;
+    }
+
+    @Transactional
+    public void stopGame(String passCode, String token) {
+        Room stoppedRoom = loadRoomAsAdmin(passCode, token);
+
+        ROUND_STATES.remove(stoppedRoom.getId());
+        ROUND_SUBMISSIONS.remove(stoppedRoom.getId());
+        LAST_RESULTS.remove(stoppedRoom.getId());
+        FINAL_LEADERBOARDS.remove(stoppedRoom.getId());
+        STOP_MESSAGES.remove(stoppedRoom.getId());
+        if (!RUNNING_ROOM_IDS.remove(stoppedRoom.getId())) {
+            throw new IllegalStateException("There is no game in progress in this room.");
+        }
+
+        if (pendingRoundEnd != null) {
+            pendingRoundEnd.cancel(false);
+        }
+
+        roundRepository.findFirstByRoomIdAndNoOfRoundOrderByIdDesc(stoppedRoom.getId(), stoppedRoom.getCurrentRound())
+                .ifPresent(currentRound -> currentRound.setActive(false));
+
+        for (Player member : stoppedRoom.getPlayers()) {
+            member.setCurrentGamePassCode(null);
+        }
+        stoppedRoom.getPlayers().clear();
+        stoppedRoom.setIsActive(false);
+        if (stoppedRoom.getAdmin() != null) {
+            stoppedRoom.getAdmin().setRole(null);
+            stoppedRoom.setAdmin(null);
+        }
+        roomRepository.save(stoppedRoom);
+
+        socketController.broadcastUpdate(stoppedRoom.getId(), "The room was closed. The host ended the game.");
+    }
+
+    @Transactional
+    public void startGame(String passCode, String token) {
+
+        room = loadRoomAsAdmin(passCode, token);
+
         if (room.getPlayers().size() < 2) {
             throw new InsufficientPlayersException(
                     ExceptionsMessages.getInsufficientPlayersMessage()
@@ -106,6 +248,8 @@ public class GameService {
         if (!RUNNING_ROOM_IDS.add(room.getId())) {
             throw new IllegalStateException("A game is already in progress in this room.");
         }
+        FINAL_LEADERBOARDS.remove(room.getId());
+        STOP_MESSAGES.remove(room.getId());
 
         try {
             Leaderboard leaderboard = Leaderboard.builder()
@@ -131,7 +275,7 @@ public class GameService {
 
             startRound();
         } catch (RuntimeException ex) {
-            RUNNING_ROOM_IDS.remove(room.getId());
+            clearRunning(room.getId());
             throw ex;
         }
     }
@@ -149,15 +293,15 @@ public class GameService {
         Long roundId = round.getId();
         Long roomId = room.getId();
 
+        ROUND_SUBMISSIONS.put(roomId, new ConcurrentHashMap<>());
+        LAST_RESULTS.remove(roomId);
+        ROUND_STATES.put(roomId, new RoundState(
+                currentRound, round.getScenario(), System.currentTimeMillis() + roundSeconds * 1000L, PHASE_ANSWERING));
+
         pendingRoundEnd = scheduler.schedule(() -> runRoundEnd(roundId, roomId), roundSeconds, TimeUnit.SECONDS);
     }
 
-    /**
-     * Called by SubmissionService after every committed submission. Counts again in a fresh
-     * transaction, so two players submitting at the same instant cannot both miss that they were
-     * the last one. Runs on the same single-threaded executor as the timer, so cancelling the
-     * pending timer here is safe from racing with it, and runRoundEnd ignores an already-ended round.
-     */
+
     public void triggerEarlyRoundEndIfComplete(Long roundId, Long roomId) {
         scheduler.execute(() -> {
             try {
@@ -185,6 +329,10 @@ public class GameService {
     }
 
     private void runRoundEnd(Long roundId, Long roomId) {
+        if (!RUNNING_ROOM_IDS.contains(roomId)) {
+            return;
+        }
+
         runInTransaction(roomId, () -> {
             Round freshRound = roundRepository.findById(roundId)
                     .orElseThrow(() -> new ResourceNotFoundException(
@@ -192,16 +340,13 @@ public class GameService {
             if (!Boolean.TRUE.equals(freshRound.getActive())) {
                 return;
             }
+            setPhase(roomId, PHASE_JUDGING);
             roundService.endRound(freshRound);
             processRound();
         });
     }
 
-    /**
-     * Scheduled work runs on a plain executor thread with no Hibernate session, so every step
-     * re-loads the room inside its own transaction. Any failure stops the game and tells the
-     * players, instead of leaving them waiting on a round that will never finish.
-     */
+
     private void runInTransaction(Long roomId, Runnable action) {
         try {
             new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
@@ -223,17 +368,28 @@ public class GameService {
                 ));
         List<PlayerRoundResult> results = roundService.processSubmissions(round.getId());
 
-        socketController.broadcastRoundResults(room.getId(), new RoundResultsMessage(room.getCurrentRound(), results));
+        if (!RUNNING_ROOM_IDS.contains(room.getId())) {
+            return;
+        }
+
+        RoundResultsMessage resultsMessage = new RoundResultsMessage(room.getCurrentRound(), results);
+        LAST_RESULTS.put(room.getId(), resultsMessage);
+        socketController.broadcastRoundResults(room.getId(), resultsMessage);
         socketController.broadcastLeaderboardUpdate(
                 room.getId(), leaderboardService.getLeaderboardByRoomPassCode(room.getPassCode()));
 
         roundRepository.save(round);
         roomRepository.save(room);
+        setPhase(room.getId(), PHASE_RESULTS);
 
         long resultsSeconds = RESULTS_BASE_SECONDS + (long) results.size() * RESULTS_SECONDS_PER_PLAYER;
         Long roomId = room.getId();
         Runnable next = room.getCurrentRound().equals(LAST_ROUND) ? this::endGame : this::startRound;
-        scheduler.schedule(() -> runInTransaction(roomId, next), resultsSeconds, TimeUnit.SECONDS);
+        scheduler.schedule(() -> {
+            if (RUNNING_ROOM_IDS.contains(roomId)) {
+                runInTransaction(roomId, next);
+            }
+        }, resultsSeconds, TimeUnit.SECONDS);
     }
 
     private void endGame() {
@@ -241,12 +397,13 @@ public class GameService {
         updateDashboard(room.getLeaderboard());
         room.setIsActive(false);
         roomRepository.save(room);
-        RUNNING_ROOM_IDS.remove(room.getId());
+        clearRunning(room.getId());
+        FINAL_LEADERBOARDS.put(room.getId(), finalLeaderboard);
         socketController.broadcastGameEnds(room.getId(), finalLeaderboard);
     }
 
     private void stopGameAfterFailure(Long roomId, Throwable failure) {
-        RUNNING_ROOM_IDS.remove(roomId);
+        clearRunning(roomId);
         String reason = failure instanceof AiServiceException aiFailure
                 ? aiFailure.getUserMessage()
                 : "Something went wrong while judging the round.";
@@ -261,7 +418,9 @@ public class GameService {
             logger.error("Could not mark room {} inactive after a failure: {}", roomId, ex.getMessage(), ex);
         }
 
-        socketController.broadcastUpdate(roomId, "The game was stopped. " + reason);
+        String stopMessage = "The game was stopped. " + reason;
+        STOP_MESSAGES.put(roomId, stopMessage);
+        socketController.broadcastUpdate(roomId, stopMessage);
     }
 
     private void updateDashboard(Leaderboard finalLeaderBoard) {

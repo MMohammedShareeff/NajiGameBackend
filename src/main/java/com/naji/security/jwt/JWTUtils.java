@@ -3,6 +3,7 @@ package com.naji.security.jwt;
 import com.naji.exception.exceptions.ResourceNotFoundException;
 import com.naji.player.Player;
 import com.naji.player.PlayerRepository;
+import com.naji.player.PlayerServiceImpl;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
@@ -55,6 +56,7 @@ public class JWTUtils {
         String playerRole = player.getRole();
         claims.put("playerId", playerId);
         claims.put("role", playerRole);
+        claims.put("guest", PlayerServiceImpl.isGuest(player));
 
         return Jwts.builder()
                 .setClaims(claims)

@@ -62,6 +62,18 @@ public class RoomController {
        }
     }
 
+    @PostMapping("/leave")
+    public ApiResponse<String> leaveRoom(@RequestParam String passCode,
+                                         @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        String token = jwtUtils.getTokenFromHeader(authHeader);
+        if (token == null || !jwtUtils.validateJwtToken(token)) {
+            return new ApiResponse<>("your token is either expired or with wrong format", HttpStatus.UNAUTHORIZED);
+        }
+
+        roomServiceImpl.leaveRoom(passCode, jwtUtils.getPlayerIdFromToken(token));
+        return new ApiResponse<>("you left the room", HttpStatus.OK);
+    }
+
     @DeleteMapping("/kick-player/{playerName}")
     public ApiResponse<String> kickPlayerFromRoom(@RequestParam String passCode, @RequestHeader("Authorization") String authHeader , @PathVariable String playerName){
         String token = jwtUtils.getTokenFromHeader(authHeader);

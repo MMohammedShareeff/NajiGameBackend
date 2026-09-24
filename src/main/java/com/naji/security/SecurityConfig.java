@@ -45,7 +45,7 @@ public class SecurityConfig {
                         .requestMatchers("/player/**").permitAll()
                         .requestMatchers("/player/reset-password").permitAll()
                         .requestMatchers("/room/kick-player/").hasRole("ROOM_ADMIN")
-                        .requestMatchers("/game/start").hasRole("ROOM_ADMIN")
+                        .requestMatchers("/game/start", "/game/stop").hasRole("ROOM_ADMIN")
                         .requestMatchers("/Submission/**").permitAll()
                         .requestMatchers("/dashboard/**").permitAll()
                         .requestMatchers("/verification/verify-email").permitAll()

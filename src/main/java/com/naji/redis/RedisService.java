@@ -57,6 +57,31 @@ public class RedisService {
         logger.info(":account data stored temporarily for the email: " + email);
     }
 
+    public void savePendingUpdate(Long playerId, PlayerRequest playerRequest) {
+        playerRequestTemplate.opsForValue().set("pendingUpdate:" + playerId, playerRequest, 10, TimeUnit.MINUTES);
+    }
+
+    public PlayerRequest getPendingUpdate(Long playerId) {
+        return playerRequestTemplate.opsForValue().get("pendingUpdate:" + playerId);
+    }
+
+    public void saveUpdateStage(Long playerId, String stage) {
+        verificationTemplate.opsForValue().set("updateStage:" + playerId, stage, 10, TimeUnit.MINUTES);
+    }
+
+    public String getUpdateStage(Long playerId) {
+        return verificationTemplate.opsForValue().get("updateStage:" + playerId);
+    }
+
+    public void clearPendingUpdate(Long playerId) {
+        playerRequestTemplate.delete("pendingUpdate:" + playerId);
+        verificationTemplate.delete("updateStage:" + playerId);
+    }
+
+    public void deleteVerificationCode(String email) {
+        verificationTemplate.delete("verification:" + email);
+    }
+
     public PlayerRequest getAccountData(String email) {
         return playerRequestTemplate.opsForValue().get("account:" + email);
     }

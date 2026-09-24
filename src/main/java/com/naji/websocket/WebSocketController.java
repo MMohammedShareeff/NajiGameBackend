@@ -1,5 +1,7 @@
 package com.naji.websocket;
 
+import com.naji.game.RoundSubmissionsMessage;
+import com.naji.room.RoomPlayersMessage;
 import com.naji.round.RoundResultsMessage;
 import com.naji.round.RoundStartMessage;
 import lombok.AllArgsConstructor;
@@ -29,6 +31,14 @@ public class WebSocketController {
 
     public void broadcastUpdate(Long roomId, String message){
         messagingTemplate.convertAndSend("/topic/room/" + roomId + "/updates", message);
+    }
+
+    public void broadcastSubmissions(Long roomId, RoundSubmissionsMessage message){
+        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/submissions", message);
+    }
+
+    public void broadcastPlayers(Long roomId, RoomPlayersMessage message){
+        messagingTemplate.convertAndSend("/topic/room/" + roomId + "/players", message);
     }
 
     public void broadcastGameEnds(Long roomId, String finalLeaderboard){

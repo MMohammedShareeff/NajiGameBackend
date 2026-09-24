@@ -14,12 +14,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
 @RequiredArgsConstructor
@@ -31,6 +34,10 @@ public class PlayerServiceImpl implements PlayerService {
     private final JWTUtils jwtUtils;
     private final RoomServiceImpl roomServiceImpl;
     private final RedisService redisService;
+    private final PasswordEncoder passwordEncoder;
+    public static final String GUEST_ROLE = "GUEST";
+    private static final String GUEST_EMAIL_DOMAIN = "@guest.naji.local";
+    private static final Pattern GUEST_NICKNAME = Pattern.compile("^[A-Za-z][A-Za-z0-9_-]{2,19}$");
     private static final Pattern STARTS_WITH_LETTER = Pattern.compile("^[A-Za-z].*");
     private static final Pattern VALID_PASSWORD = Pattern.compile("^(?=.*[A-Z])(?=.*[a-z])(?=.*\\W).{8,}$");
 
@@ -42,8 +49,10 @@ public class PlayerServiceImpl implements PlayerService {
                              PlayerRepository playerRepository,
                              RoomRepository roomRepository,
                              JWTUtils jwtUtils,
-                             RedisService redisService
+                             RedisService redisService,
+                             @Lazy PasswordEncoder passwordEncoder
     ) {
+        this.passwordEncoder = passwordEncoder;
         this.roomServiceImpl = roomServiceImpl;
         this.playerRepository = playerRepository;
         this.roomRepository = roomRepository;
@@ -77,6 +86,39 @@ public class PlayerServiceImpl implements PlayerService {
         logger.info("email verification required, check your email: " + email);
     }
 
+    private static String randomGuestName(String prefix) {
+        return prefix + "-" + ThreadLocalRandom.current().nextInt(1000, 10000);
+    }
+
+    public static boolean isGuest(Player player) {
+        return player.getEmail() != null && player.getEmail().endsWith(GUEST_EMAIL_DOMAIN);
+    }
+
+    @Transactional
+    public String createGuest(String requestedName) {
+        String nickname = requestedName == null ? "" : requestedName.trim();
+        if (!nickname.isEmpty() && !GUEST_NICKNAME.matcher(nickname).matches()) {
+            throw new DataIntegrityViolationException(
+                    "nickname: use 3-20 letters, numbers, - or _, and start with a letter.");
+        }
+
+        String userName = nickname.isEmpty() ? randomGuestName("Guest") : nickname;
+        while (playerRepository.findByUserName(userName).isPresent()
+                || playerRepository.findByEmail(userName.toLowerCase() + GUEST_EMAIL_DOMAIN).isPresent()) {
+            userName = randomGuestName(nickname.isEmpty() ? "Guest" : nickname);
+        }
+
+        Player guest = Player.builder()
+                .userName(userName)
+                .email(userName.toLowerCase() + GUEST_EMAIL_DOMAIN)
+                .password(passwordEncoder.encode(UUID.randomUUID().toString()))
+                .role(GUEST_ROLE)
+                .build();
+        playerRepository.save(guest);
+
+        return userName;
+    }
+
     @Transactional
     @Override
     public void updatePlayer(PlayerRequest playerRequest, String token) {
@@ -94,11 +136,15 @@ public class PlayerServiceImpl implements PlayerService {
         logger.debug(String.format("Request name: %s\n Request email: %s", userName, email));
 
         Player player = getPlayerByIdOrThrowException(id);
+        if (isGuest(player)) {
+            throw new UnauthorizedAccessException("Guest accounts can't be edited. Create an account to unlock this.");
+        }
 
-        redisService.saveAccountData(playerRequest);
-        redisService.saveVerificationCode(email);
+        redisService.savePendingUpdate(id, playerRequest);
+        redisService.saveUpdateStage(id, "OLD_EMAIL");
+        redisService.saveVerificationCode(player.getEmail());
 
-        logger.info("email verification required, check your email: " + email);
+        logger.info("profile change requested, confirmation code sent to the current email of player {}", id);
     }
 
     @Override
@@ -160,7 +206,8 @@ public class PlayerServiceImpl implements PlayerService {
         room.getPlayers().add(player);
         player.setCurrentGamePassCode(passCode);
 
-        roomRepository.save(room);
+        Room savedRoom = roomRepository.save(room);
+        roomServiceImpl.broadcastPlayersAfterCommit(savedRoom);
     }
 
 

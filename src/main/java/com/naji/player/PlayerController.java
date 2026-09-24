@@ -40,6 +40,12 @@ public class PlayerController {
         return new ApiResponse<>("email verification required, check your email: " + playerRequest.getEmail(), HttpStatus.CREATED);
     }
 
+    @PostMapping("/guest")
+    public ApiResponse<String> createGuest(@RequestParam(required = false) String name) {
+        String userName = playerService.createGuest(name);
+        return new ApiResponse<>(jwtUtils.generateToken(userName), HttpStatus.CREATED);
+    }
+
     @PostMapping("/join-room")
     public ApiResponse<?> joinRoom(@RequestParam String passcode, @RequestHeader("Authorization") String authHeader) {
         String token = jwtUtils.getTokenFromHeader(authHeader);
@@ -53,7 +59,7 @@ public class PlayerController {
         try {
             String token = jwtUtils.getTokenFromHeader(authHeader);
             playerService.updatePlayer(playerRequest, token);
-            return new ApiResponse<>("email verification is required, check your email", HttpStatus.OK);
+            return new ApiResponse<>("confirmation code sent to your current email", HttpStatus.OK);
         } catch (TokenNotValidException ex) {
             return new ApiResponse<>(ex.getMessage(), HttpStatus.UNAUTHORIZED);
         }

@@ -62,9 +62,11 @@ public class SubmissionService {
 
         Long roundId = round.getId();
         Long roomId = room.getId();
+        String playerName = player.getUserName();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
+                gameService.onSubmissionRecorded(roomId, playerName);
                 gameService.triggerEarlyRoundEndIfComplete(roundId, roomId);
             }
         });

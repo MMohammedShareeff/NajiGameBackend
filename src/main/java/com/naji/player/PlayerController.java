@@ -1,6 +1,7 @@
 package com.naji.player;
 
 import com.naji.exception.exceptions.TokenNotValidException;
+import com.naji.redis.RedisService;
 import com.naji.response.ApiResponse;
 import com.naji.security.jwt.JWTUtils;
 import com.naji.security.login.Request;
@@ -28,6 +29,7 @@ public class PlayerController {
     private final PlayerServiceImpl playerService;
     private final JWTUtils jwtUtils;
     private final AuthenticationManager authenticationManager;
+    private final RedisService redisService;
 
     @GetMapping("/all")
     public ApiResponse<?> getAllPlayers() {
@@ -97,7 +99,10 @@ public class PlayerController {
 
     @PostMapping("/login")
     public ApiResponse<?> login(@RequestBody @Validated(OnCreate.class) Request playerRequest) {
-        logger.info("reaches the backend");
+        if (redisService.isLoginLocked(playerRequest.getUserName())) {
+            return new ApiResponse<>("Too many failed sign-in attempts. Try again in a few minutes.", HttpStatus.TOO_MANY_REQUESTS);
+        }
+
         try {
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(playerRequest.getUserName(), playerRequest.getPassword())
@@ -105,9 +110,11 @@ public class PlayerController {
 
             SecurityContextHolder.getContext().setAuthentication(authentication);
             String token = jwtUtils.generateToken(playerRequest.getUserName());
+            redisService.clearLoginFailures(playerRequest.getUserName());
             return new ApiResponse<>(token, HttpStatus.OK);
 
         } catch (Exception e) {
+            redisService.recordLoginFailure(playerRequest.getUserName());
             return new ApiResponse<>(e.getLocalizedMessage(), HttpStatus.UNAUTHORIZED);
         }
     }

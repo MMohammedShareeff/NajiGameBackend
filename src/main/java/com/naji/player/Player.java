@@ -9,6 +9,7 @@ import com.naji.submission.Submission;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Getter
@@ -56,4 +57,7 @@ public class Player {
 
 
     private GameStatus lastGameStatus;
+
+    @Column(name = "created_at", insertable = false, updatable = false)
+    private LocalDateTime createdAt;
 }

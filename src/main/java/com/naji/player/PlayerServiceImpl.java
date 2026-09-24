@@ -218,6 +218,10 @@ public class PlayerServiceImpl implements PlayerService {
         if (!isTokenValid)
             throw new TokenNotValidException("you token is either expired or with wrong format");
 
+        if (!jwtUtils.getPlayerIdFromToken(token).equals(id)) {
+            throw new UnauthorizedAccessException(ExceptionsMessages.getUnauthorizedMessage());
+        }
+
         Player player = getPlayerByIdOrThrowException(id);
         playerRepository.delete(player);
     }

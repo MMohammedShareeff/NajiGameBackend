@@ -57,6 +57,26 @@ public class RedisService {
         logger.info(":account data stored temporarily for the email: " + email);
     }
 
+    private static final int MAX_CODE_ATTEMPTS = 5;
+    private static final int MAX_LOGIN_FAILURES = 10;
+
+    public boolean isLoginLocked(String userName) {
+        String failures = verificationTemplate.opsForValue().get("loginFails:" + userName);
+        return failures != null && Integer.parseInt(failures) >= MAX_LOGIN_FAILURES;
+    }
+
+    public void recordLoginFailure(String userName) {
+        String key = "loginFails:" + userName;
+        Long failures = verificationTemplate.opsForValue().increment(key);
+        if (failures != null && failures == 1) {
+            verificationTemplate.expire(key, 10, TimeUnit.MINUTES);
+        }
+    }
+
+    public void clearLoginFailures(String userName) {
+        verificationTemplate.delete("loginFails:" + userName);
+    }
+
     public void savePendingUpdate(Long playerId, PlayerRequest playerRequest) {
         playerRequestTemplate.opsForValue().set("pendingUpdate:" + playerId, playerRequest, 10, TimeUnit.MINUTES);
     }
@@ -95,7 +115,22 @@ public class RedisService {
     public boolean validateVerificationCode(String email, String code) {
         String storedCode = getVerificationCode(email);
         logger.info("Validating code for email {}: expected {}, received {}", email, storedCode, code);
-        return Objects.nonNull(storedCode) && storedCode.equals(code);
+        String attemptsKey = "codeAttempts:" + email;
+
+        if (Objects.nonNull(storedCode) && storedCode.equals(code)) {
+            verificationTemplate.delete(attemptsKey);
+            return true;
+        }
+
+        Long attempts = verificationTemplate.opsForValue().increment(attemptsKey);
+        if (attempts != null && attempts == 1) {
+            verificationTemplate.expire(attemptsKey, 10, TimeUnit.MINUTES);
+        }
+        if (attempts != null && attempts >= MAX_CODE_ATTEMPTS) {
+            verificationTemplate.delete("verification:" + email);
+            verificationTemplate.delete(attemptsKey);
+        }
+        return false;
     }
 
     public String generateVerificationCode() {

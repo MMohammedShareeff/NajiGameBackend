@@ -29,7 +29,6 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -40,10 +39,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 @RequiredArgsConstructor
 @Service
-@Scope("prototype")
 public class GameService {
 
     private static final Logger logger = LoggerFactory.getLogger(GameService.class);
@@ -57,6 +56,7 @@ public class GameService {
     private static final String PHASE_ANSWERING = "answering";
     private static final String PHASE_JUDGING = "judging";
     private static final String PHASE_RESULTS = "results";
+    private static final int SCHEDULER_THREADS = 8;
     private static final int LAST_ROUND = 5;
     private static final int RESULTS_BASE_SECONDS = 3;
     private static final int RESULTS_SECONDS_PER_PLAYER = 8;
@@ -70,15 +70,18 @@ public class GameService {
     private final DashboardService dashboardService;
     private final RoundService roundService;
     private final LeaderboardService leaderboardService;
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(SCHEDULER_THREADS);
+    private final Map<Long, ScheduledFuture<?>> pendingRoundEnds = new ConcurrentHashMap<>();
+    private final Map<Long, Object> roomLocks = new ConcurrentHashMap<>();
     private final JWTUtils jwtUtils;
     private final PlatformTransactionManager transactionManager;
 
     @Value("${game.round-seconds:90}")
     private int roundSeconds;
 
-    private Room room;
-    private ScheduledFuture<?> pendingRoundEnd;
+    private Object lockFor(Long roomId) {
+        return roomLocks.computeIfAbsent(roomId, id -> new Object());
+    }
 
     private record RoundState(int round, String scenario, long endsAtMillis, String phase) {
         RoundState withPhase(String newPhase) {
@@ -90,7 +93,8 @@ public class GameService {
         ROUND_STATES.computeIfPresent(roomId, (id, state) -> state.withPhase(phase));
     }
 
-    private static void clearRunning(Long roomId) {
+    private void clearRunning(Long roomId) {
+        pendingRoundEnds.remove(roomId);
         RUNNING_ROOM_IDS.remove(roomId);
         ROUND_STATES.remove(roomId);
         ROUND_SUBMISSIONS.remove(roomId);
@@ -213,8 +217,9 @@ public class GameService {
             throw new IllegalStateException("There is no game in progress in this room.");
         }
 
-        if (pendingRoundEnd != null) {
-            pendingRoundEnd.cancel(false);
+        ScheduledFuture<?> pendingEnd = pendingRoundEnds.remove(stoppedRoom.getId());
+        if (pendingEnd != null) {
+            pendingEnd.cancel(false);
         }
 
         roundRepository.findFirstByRoomIdAndNoOfRoundOrderByIdDesc(stoppedRoom.getId(), stoppedRoom.getCurrentRound())
@@ -237,7 +242,7 @@ public class GameService {
     @Transactional
     public void startGame(String passCode, String token) {
 
-        room = loadRoomAsAdmin(passCode, token);
+        Room room = loadRoomAsAdmin(passCode, token);
 
         if (room.getPlayers().size() < 2) {
             throw new InsufficientPlayersException(
@@ -273,14 +278,14 @@ public class GameService {
             roomRepository.save(room);
             socketController.broadcastGameStart(room.getId(), "The game has started");
 
-            startRound();
+            startRound(room);
         } catch (RuntimeException ex) {
             clearRunning(room.getId());
             throw ex;
         }
     }
 
-    private void startRound() {
+    private void startRound(Room room) {
         int currentRound = room.getCurrentRound() + 1;
         room.setCurrentRound(currentRound);
 
@@ -298,7 +303,7 @@ public class GameService {
         ROUND_STATES.put(roomId, new RoundState(
                 currentRound, round.getScenario(), System.currentTimeMillis() + roundSeconds * 1000L, PHASE_ANSWERING));
 
-        pendingRoundEnd = scheduler.schedule(() -> runRoundEnd(roundId, roomId), roundSeconds, TimeUnit.SECONDS);
+        pendingRoundEnds.put(roomId, scheduler.schedule(() -> runRoundEnd(roundId, roomId), roundSeconds, TimeUnit.SECONDS));
     }
 
 
@@ -308,8 +313,9 @@ public class GameService {
                 if (!allPlayersSubmitted(roundId, roomId)) {
                     return;
                 }
-                if (pendingRoundEnd != null) {
-                    pendingRoundEnd.cancel(false);
+                ScheduledFuture<?> pendingEnd = pendingRoundEnds.remove(roomId);
+                if (pendingEnd != null) {
+                    pendingEnd.cancel(false);
                 }
                 runRoundEnd(roundId, roomId);
             } catch (Throwable ex) {
@@ -329,31 +335,33 @@ public class GameService {
     }
 
     private void runRoundEnd(Long roundId, Long roomId) {
-        if (!RUNNING_ROOM_IDS.contains(roomId)) {
-            return;
-        }
-
-        runInTransaction(roomId, () -> {
-            Round freshRound = roundRepository.findById(roundId)
-                    .orElseThrow(() -> new ResourceNotFoundException(
-                            ExceptionsMessages.getResourceNotFoundMessage(Round.class)));
-            if (!Boolean.TRUE.equals(freshRound.getActive())) {
+        synchronized (lockFor(roomId)) {
+            if (!RUNNING_ROOM_IDS.contains(roomId)) {
                 return;
             }
-            setPhase(roomId, PHASE_JUDGING);
-            roundService.endRound(freshRound);
-            processRound();
-        });
+
+            runInTransaction(roomId, room -> {
+                Round freshRound = roundRepository.findById(roundId)
+                        .orElseThrow(() -> new ResourceNotFoundException(
+                                ExceptionsMessages.getResourceNotFoundMessage(Round.class)));
+                if (!Boolean.TRUE.equals(freshRound.getActive())) {
+                    return;
+                }
+                setPhase(roomId, PHASE_JUDGING);
+                roundService.endRound(freshRound);
+                processRound(room);
+            });
+        }
     }
 
 
-    private void runInTransaction(Long roomId, Runnable action) {
+    private void runInTransaction(Long roomId, Consumer<Room> action) {
         try {
             new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-                room = roomRepository.findById(roomId)
+                Room room = roomRepository.findById(roomId)
                         .orElseThrow(() -> new ResourceNotFoundException(
                                 ExceptionsMessages.getResourceNotFoundMessage(Room.class)));
-                action.run();
+                action.accept(room);
             });
         } catch (Throwable ex) {
             logger.error("Game processing failed for room {}: {}", roomId, ex.getMessage(), ex);
@@ -361,7 +369,7 @@ public class GameService {
         }
     }
 
-    private void processRound() {
+    private void processRound(Room room) {
         Round round = roundRepository.findFirstByRoomIdAndNoOfRoundOrderByIdDesc(room.getId(), room.getCurrentRound())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         ExceptionsMessages.getResourceNotFoundMessage(Round.class)
@@ -384,17 +392,19 @@ public class GameService {
 
         long resultsSeconds = RESULTS_BASE_SECONDS + (long) results.size() * RESULTS_SECONDS_PER_PLAYER;
         Long roomId = room.getId();
-        Runnable next = room.getCurrentRound().equals(LAST_ROUND) ? this::endGame : this::startRound;
+        Consumer<Room> next = room.getCurrentRound().equals(LAST_ROUND) ? this::endGame : this::startRound;
         scheduler.schedule(() -> {
-            if (RUNNING_ROOM_IDS.contains(roomId)) {
-                runInTransaction(roomId, next);
+            synchronized (lockFor(roomId)) {
+                if (RUNNING_ROOM_IDS.contains(roomId)) {
+                    runInTransaction(roomId, next);
+                }
             }
         }, resultsSeconds, TimeUnit.SECONDS);
     }
 
-    private void endGame() {
+    private void endGame(Room room) {
         String finalLeaderboard = leaderboardService.getLeaderboardByRoomPassCode(room.getPassCode());
-        updateDashboard(room.getLeaderboard());
+        updateDashboard(room, room.getLeaderboard());
         room.setIsActive(false);
         roomRepository.save(room);
         clearRunning(room.getId());
@@ -423,7 +433,7 @@ public class GameService {
         socketController.broadcastUpdate(roomId, stopMessage);
     }
 
-    private void updateDashboard(Leaderboard finalLeaderBoard) {
+    private void updateDashboard(Room room, Leaderboard finalLeaderBoard) {
         Map<Player, Integer> playerScoresMap = new HashMap<>();
         for (Player player : room.getPlayers()) {
             PlayerScores playerScores = playerScoresRepository.findByPlayerIdAndLeaderboardId(player.getId(), finalLeaderBoard.getId())

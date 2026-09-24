@@ -51,7 +51,14 @@ public class RoomController {
     }
 
     @PostMapping("/add-player")
-    public ApiResponse<String> addPlayerToRoom(@RequestParam String passCode, @RequestParam String userName){
+    public ApiResponse<String> addPlayerToRoom(@RequestParam String passCode,
+                                               @RequestHeader(value = "Authorization", required = false) String authHeader){
+       String token = jwtUtils.getTokenFromHeader(authHeader);
+       if (token == null || !jwtUtils.validateJwtToken(token)) {
+           return new ApiResponse<>("your token is either expired or with wrong format", HttpStatus.UNAUTHORIZED);
+       }
+       String userName = jwtUtils.getUserNameFromJwtToken(token);
+
        try{
            Room room = roomServiceImpl.addPlayerToRoom(passCode, userName);
            String message = "player with id " + userName + " added successfully to a room with a passCode: " + passCode;

@@ -1,6 +1,7 @@
 package com.naji.websocket;
 
 import com.naji.game.RoundSubmissionsMessage;
+import com.naji.invite.InviteResponse;
 import com.naji.room.RoomPlayersMessage;
 import com.naji.round.RoundResultsMessage;
 import com.naji.round.RoundStartMessage;
@@ -35,6 +36,10 @@ public class WebSocketController {
 
     public void broadcastSubmissions(Long roomId, RoundSubmissionsMessage message){
         messagingTemplate.convertAndSend("/topic/room/" + roomId + "/submissions", message);
+    }
+
+    public void sendInvite(String userName, InviteResponse invite){
+        messagingTemplate.convertAndSendToUser(userName, "/queue/invites", invite);
     }
 
     public void broadcastPlayers(Long roomId, RoomPlayersMessage message){

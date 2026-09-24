@@ -14,9 +14,12 @@ public class PlayerMapper {
                 .build();
     }
 
+    public static ProfileResponse toProfile(Player player) {
+        return new ProfileResponse(player.getId(), player.getUserName(), player.getEmail(), player.getRole());
+    }
+
     public static PlayerResponse toResponse(Player player) {
         return PlayerResponse.builder()
-                .email(player.getEmail())
                 .id(player.getId())
                 .userName(player.getUserName())
                 .lastGameStatus(player.getLastGameStatus())

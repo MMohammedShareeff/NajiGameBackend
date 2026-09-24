@@ -9,7 +9,6 @@ import lombok.Data;
 public class PlayerResponse {
     private long id;
     private String userName;
-    private String email;
     private GameStatus lastGameStatus;
     private String role;
 }

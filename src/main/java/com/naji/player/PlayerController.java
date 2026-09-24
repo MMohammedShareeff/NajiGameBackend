@@ -65,10 +65,21 @@ public class PlayerController {
         return new ApiResponse<>("email verification required, check your email", HttpStatus.OK);
     }
 
+    @GetMapping("/me")
+    public ApiResponse<?> getMyProfile(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        String token = jwtUtils.getTokenFromHeader(authHeader);
+        if (token == null || !jwtUtils.validateJwtToken(token)) {
+            return new ApiResponse<>("your token is either expired or with wrong format", HttpStatus.UNAUTHORIZED);
+        }
+
+        Player player = playerService.getPlayerByIdOrThrowException(jwtUtils.getPlayerIdFromToken(token));
+        return new ApiResponse<>(PlayerMapper.toProfile(player), HttpStatus.OK);
+    }
+
     @GetMapping("/{id}")
-    public ApiResponse<Player> getPlayerById(@PathVariable Long id) {
+    public ApiResponse<PlayerResponse> getPlayerById(@PathVariable Long id) {
         Player player = playerService.getPlayerByIdOrThrowException(id);
-        return new ApiResponse<>(player, HttpStatus.OK);
+        return new ApiResponse<>(PlayerMapper.toResponse(player), HttpStatus.OK);
     }
 
     @DeleteMapping("/delete/{id}")

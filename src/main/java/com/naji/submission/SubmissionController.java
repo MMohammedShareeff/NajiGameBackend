@@ -22,7 +22,7 @@ public class SubmissionController {
             String token = jwtUtils.getTokenFromHeader(authHeader);
             Long playerId = jwtUtils.getPlayerIdFromToken(token);
             String submission = submissionService.submit(text, playerId);
-            if (submission.equals("all players submitted"))
+            if (submission.equals("All players already submitted"))
                 return new ApiResponse<>(submission, HttpStatus.BAD_REQUEST);
             return new ApiResponse<>(submission, HttpStatus.OK);
         } catch (Exception ex) {

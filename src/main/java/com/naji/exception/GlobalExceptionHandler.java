@@ -1,6 +1,7 @@
 package com.naji.exception;
 
 import com.naji.exception.exceptions.*;
+import com.naji.openai.AiServiceException;
 import com.naji.response.ApiResponse;
 import com.naji.validation.Validation;
 import org.antlr.v4.runtime.Token;
@@ -67,5 +68,15 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(FieldsMisMatchException.class)
     public ApiResponse<String> handleFieldsMisMatchException(FieldsMisMatchException ex){
         return new ApiResponse<>(ex.getMessage(), HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ApiResponse<String> handleIllegalStateException(IllegalStateException ex) {
+        return new ApiResponse<>(ex.getMessage(), HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(AiServiceException.class)
+    public ApiResponse<String> handleAiServiceException(AiServiceException ex) {
+        return new ApiResponse<>(ex.getUserMessage(), HttpStatus.valueOf(ex.getHttpStatus()));
     }
 }

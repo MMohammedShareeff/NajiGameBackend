@@ -34,6 +34,7 @@ public class Room {
     @Builder.Default
     private List<Player> players = new ArrayList<>();
 
+    @Builder.Default
     private Boolean isActive = true;
 
     @OneToMany(mappedBy = "room", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
@@ -44,8 +45,10 @@ public class Room {
     @JoinColumn(name = "admin_id")
     private Player admin;
 
+    @Builder.Default
     private Integer currentRound = 0;
 
+    @ToString.Exclude
     @OneToOne(cascade = CascadeType.ALL)
     @JoinColumn(name = "leaderboard_id")
     private Leaderboard leaderboard;

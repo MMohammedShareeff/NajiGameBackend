@@ -1,13 +1,10 @@
 package com.naji.round;
 
-import com.naji.leaderboard.Leaderboard;
-import com.naji.player.Player;
 import com.naji.room.Room;
 import com.naji.submission.Submission;
 import jakarta.persistence.*;
 import lombok.*;
 import java.util.List;
-import java.util.Set;
 
 
 @Getter
@@ -27,14 +24,9 @@ public class Round {
     @ManyToOne
     private Room room;
 
-    @OneToMany
-    private Set<Player> players;
     private Boolean active;
 
-    @OneToOne
-    private Leaderboard leaderboard;
-
-    @OneToMany
+    @OneToMany(mappedBy = "round")
     private List<Submission> submissions;
 
     public Round(Integer noOfRound) {

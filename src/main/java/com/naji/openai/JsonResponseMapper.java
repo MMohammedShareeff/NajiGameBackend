@@ -51,6 +51,16 @@ public class JsonResponseMapper {
         return (int) Math.max(0, Math.min(10, rating));
     }
 
+    public String extractCommentary(String answer) {
+        if (answer == null) {
+            return "";
+        }
+        return answer
+                .replaceAll("(?is)\\s*\\**\\s*result\\s*[:=].*$", "")
+                .replace("*", "")
+                .trim();
+    }
+
     private static String lastGroup(Pattern pattern, String text) {
         Matcher m = pattern.matcher(text);
         String last = null;

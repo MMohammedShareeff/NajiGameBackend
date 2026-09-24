@@ -2,6 +2,7 @@ package com.naji.submission;
 
 import com.naji.exception.ExceptionsMessages;
 import com.naji.exception.exceptions.ResourceNotFoundException;
+import com.naji.game.GameService;
 import com.naji.player.Player;
 import com.naji.player.PlayerServiceImpl;
 import com.naji.room.Room;
@@ -11,6 +12,8 @@ import com.naji.round.RoundRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.Objects;
 
@@ -21,6 +24,7 @@ public class SubmissionService {
     private final RoomRepository roomRepository;
     private final RoundRepository roundRepository;
     private final PlayerServiceImpl playerServiceImpl;
+    private final GameService gameService;
 
     @Transactional
     public String submit(String text, Long playerId) {
@@ -35,11 +39,14 @@ public class SubmissionService {
             throw new IllegalStateException("the room is not active");
         }
 
-        Round round = roundRepository.findById(room.getCurrentRound().longValue())
+        Round round = roundRepository.findFirstByRoomIdAndNoOfRoundOrderByIdDesc(room.getId(), room.getCurrentRound())
                 .orElseThrow(() -> new IllegalArgumentException("No active round found in the room."));
+        if (!Boolean.TRUE.equals(round.getActive())) {
+            throw new IllegalStateException("This round has ended, answers are closed.");
+        }
 
         Integer submissionCount = submissionRepository.countByRoundId(round.getId());
-        Integer playerCount = round.getPlayers().size();
+        Integer playerCount = room.getPlayers().size();
 
         if (submissionRepository.existsByRoundIdAndPlayerId(round.getId(), playerId)) {
             throw new IllegalStateException("You can submit only once in each round.");
@@ -50,9 +57,18 @@ public class SubmissionService {
         }
 
         Submission submission = SubmissionMapper.toEntity(text, round, player);
-        round.getSubmissions().add(submission);
-        roundRepository.save(round);
         submissionRepository.save(submission);
+        round.getSubmissions().add(submission);
+
+        Long roundId = round.getId();
+        Long roomId = room.getId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                gameService.triggerEarlyRoundEndIfComplete(roundId, roomId);
+            }
+        });
+
         return text;
     }
 

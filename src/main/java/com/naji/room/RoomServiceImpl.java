@@ -4,6 +4,8 @@ import com.naji.exception.ExceptionsMessages;
 import com.naji.exception.exceptions.ResourceNotFoundException;
 import com.naji.exception.exceptions.UnauthorizedAccessException;
 import com.naji.player.Player;
+import com.naji.player.PlayerMapper;
+import com.naji.player.PlayerResponse;
 import com.naji.player.PlayerServiceImpl;
 import com.naji.security.jwt.JWTUtils;
 import jakarta.transaction.Transactional;
@@ -29,9 +31,11 @@ public class RoomServiceImpl implements RoomService {
 
     @Transactional
     @Override
-    public List<Player> getPlayersInRoom(String passCode) {
+    public List<PlayerResponse> getPlayersInRoom(String passCode) {
         Room room = getRoomByPassCodeOrThrowException(passCode);
-        return room.getPlayers();
+        return room.getPlayers().stream()
+                .map(PlayerMapper::toResponse)
+                .toList();
     }
 
     @Transactional
@@ -43,8 +47,11 @@ public class RoomServiceImpl implements RoomService {
 
         creator.setRole("ROOM_ADMIN");
 
+        String passCode = generatePassCode();
+        creator.setCurrentGamePassCode(passCode);
+
         Room room = Room.builder()
-                .passCode(generatePassCode())
+                .passCode(passCode)
                 .players(new ArrayList<>() {{
                     add(creator);
                 }})

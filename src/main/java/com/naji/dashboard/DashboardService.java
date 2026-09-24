@@ -18,21 +18,11 @@ public class DashboardService {
 
     @Transactional
     public Dashboard getDashboardForPlayer(Long playerId){
-        return dashboardRepository.findByPlayerId(playerId)
-                .orElseThrow(
-                        () -> new ResourceNotFoundException(
-                                ExceptionsMessages.getResourceNotFoundMessage(Dashboard.class)
-                        )
-                );
+        return getOrCreateDashboard(playerId);
     }
     @Transactional
     public void updateDashboardForPlayer(Long playerId, DashboardUpdateRequest dashboardUpdateRequest) {
-        Dashboard dashboard = dashboardRepository.findByPlayerId(playerId)
-                .orElseThrow(
-                        () -> new ResourceNotFoundException(
-                                ExceptionsMessages.getResourceNotFoundMessage(Dashboard.class)
-                        )
-                );
+        Dashboard dashboard = getOrCreateDashboard(playerId);
 
         var gameStatus = dashboardUpdateRequest.getGameStatus();
         double gameScore = dashboardUpdateRequest.getScore();
@@ -66,16 +56,20 @@ public class DashboardService {
         dashboardRepository.save(dashboard);
     }
 
-    public void initializeDashboardStatus(Long playerId) {
+    private Dashboard getOrCreateDashboard(Long playerId) {
+        return dashboardRepository.findByPlayerId(playerId)
+                .orElseGet(() -> createDashboard(playerId));
+    }
+
+    private Dashboard createDashboard(Long playerId) {
         Player player = playerRepository.findById(playerId)
                 .orElseThrow(
-                        () ->  new ResourceNotFoundException(
-                                ExceptionsMessages.getResourceNotFoundMessage(Dashboard.class)
+                        () -> new ResourceNotFoundException(
+                                ExceptionsMessages.getResourceNotFoundMessage(Player.class)
                         )
                 );
 
         Dashboard dashboard = Dashboard.builder()
-                .id(playerId)
                 .player(player)
                 .totalGamesPlayed(0)
                 .totalGamesWon(0)
@@ -86,7 +80,6 @@ public class DashboardService {
                 .averageScorePerRound(0.0)
                 .build();
 
-        player.setDashboard(dashboard);
-        dashboardRepository.save(dashboard);
+        return dashboardRepository.save(dashboard);
     }
 }

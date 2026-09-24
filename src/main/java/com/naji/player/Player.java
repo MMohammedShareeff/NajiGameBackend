@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.naji.dashboard.Dashboard;
 import com.naji.dashboard.GameStatus;
 import com.naji.leaderboard.Leaderboard;
-import com.naji.player.playerscores.PlayerScores;
 import com.naji.round.Round;
 import com.naji.submission.Submission;
 import jakarta.persistence.*;
@@ -52,9 +51,6 @@ public class Player {
     @ManyToOne
     @JoinColumn(name = "leaderboard_id")
     private Leaderboard leaderboard;
-
-    @OneToOne(mappedBy = "player", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private PlayerScores playerScores;
 
     private String currentGamePassCode;
 

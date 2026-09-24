@@ -25,6 +25,7 @@ services:
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/free}
       SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME}
       SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD}
+      GAME_ROUND_SECONDS: ${GAME_ROUND_SECONDS:-90}
     healthcheck:
       test: [ "CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1" ]
       interval: 10s

@@ -1,6 +1,7 @@
 package com.naji.room;
 
-import com.naji.player.Player;
+import com.naji.player.PlayerMapper;
+import com.naji.player.PlayerResponse;
 import com.naji.response.ApiResponse;
 import com.naji.security.jwt.JWTUtils;
 import lombok.RequiredArgsConstructor;
@@ -19,9 +20,21 @@ public class RoomController {
     private final JWTUtils jwtUtils;
 
     @GetMapping("/get-players")
-    public ApiResponse<List<Player>>getPlayersInRoom(@RequestParam String passCode){
-        List<Player>players = roomServiceImpl.getPlayersInRoom(passCode);
+    public ApiResponse<List<PlayerResponse>> getPlayersInRoom(@RequestParam String passCode){
+        List<PlayerResponse> players = roomServiceImpl.getPlayersInRoom(passCode);
         return new ApiResponse<>(players, HttpStatus.OK);
+    }
+
+    @GetMapping("/room-id")
+    public ApiResponse<Long> getRoomId(@RequestParam String passCode) {
+        Room room = roomServiceImpl.getRoomByPassCodeOrThrowException(passCode);
+        return new ApiResponse<>(room.getId(), HttpStatus.OK);
+    }
+
+    @GetMapping("/admin")
+    public ApiResponse<PlayerResponse> getRoomAdmin(@RequestParam String passCode) {
+        Room room = roomServiceImpl.getRoomByPassCodeOrThrowException(passCode);
+        return new ApiResponse<>(PlayerMapper.toResponse(room.getAdmin()), HttpStatus.OK);
     }
 
     @PostMapping("/create")

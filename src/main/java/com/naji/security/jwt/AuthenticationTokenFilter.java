@@ -54,6 +54,11 @@ public class AuthenticationTokenFilter extends OncePerRequestFilter {
         try {
             String authHeader = request.getHeader("Authorization");
             String token = parseJwt(authHeader);
+
+            if (Objects.isNull(token) && requestURI.startsWith("/game-webSocket")) {
+                token = request.getParameter("token");
+            }
+
             if (Objects.nonNull(token) && jwtUtils.isAuthorizedToken(token)) {
                 String username = jwtUtils.getUserNameFromJwtToken(token);
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);

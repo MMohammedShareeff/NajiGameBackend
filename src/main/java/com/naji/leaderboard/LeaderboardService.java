@@ -34,7 +34,7 @@ public class LeaderboardService {
                     .append(player.getUserName())
                     .append('\n')
                     .append("rounds scores: ")
-                    .append(playerScores)
+                    .append(playerScores.getScores())
                     .append('\n')
                     .append(" - Total Score: ")
                     .append(totalScore)

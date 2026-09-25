@@ -20,27 +20,34 @@ public class RoomController {
     private final JWTUtils jwtUtils;
 
     @GetMapping("/get-players")
-    public ApiResponse<List<PlayerResponse>> getPlayersInRoom(@RequestParam String passCode){
+    public ApiResponse<List<PlayerResponse>> getPlayersInRoom(@RequestParam String passCode,
+                                                              @RequestHeader("Authorization") String authHeader){
+        roomServiceImpl.requireMember(passCode, callerId(authHeader));
         List<PlayerResponse> players = roomServiceImpl.getPlayersInRoom(passCode);
         return new ApiResponse<>(players, HttpStatus.OK);
     }
 
     @GetMapping("/room-id")
-    public ApiResponse<Long> getRoomId(@RequestParam String passCode) {
-        Room room = roomServiceImpl.getRoomByPassCodeOrThrowException(passCode);
+    public ApiResponse<Long> getRoomId(@RequestParam String passCode,
+                                       @RequestHeader("Authorization") String authHeader) {
+        Room room = roomServiceImpl.requireMember(passCode, callerId(authHeader));
         return new ApiResponse<>(room.getId(), HttpStatus.OK);
     }
 
     @GetMapping("/admin")
-    public ApiResponse<PlayerResponse> getRoomAdmin(@RequestParam String passCode) {
-        Room room = roomServiceImpl.getRoomByPassCodeOrThrowException(passCode);
+    public ApiResponse<PlayerResponse> getRoomAdmin(@RequestParam String passCode,
+                                                    @RequestHeader("Authorization") String authHeader) {
+        Room room = roomServiceImpl.requireMember(passCode, callerId(authHeader));
         return new ApiResponse<>(PlayerMapper.toResponse(room.getAdmin()), HttpStatus.OK);
+    }
+
+    private Long callerId(String authHeader) {
+        return jwtUtils.getPlayerIdFromToken(jwtUtils.getTokenFromHeader(authHeader));
     }
 
     @PostMapping("/create")
     public ApiResponse<String> createRoom(@RequestHeader("Authorization") String authHeader) {
         String token = jwtUtils.getTokenFromHeader(authHeader);
-        System.out.println(token);
         Room room = roomServiceImpl.createRoom(token);
         String newToken = jwtUtils.generateToken(room.getAdmin().getUserName());
 

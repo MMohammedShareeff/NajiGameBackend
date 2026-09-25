@@ -1,0 +1,25 @@
+{$SITE_ADDRESS} {
+	encode gzip
+
+	@api path /player* /room* /game* /invite* /friends* /Submission* /dashboard* /verification* /actuator/health*
+	handle @api {
+		reverse_proxy app:8080
+	}
+
+	handle {
+		root * /srv/frontend
+		header /js/* Cache-Control "public, max-age=86400"
+		header /css/* Cache-Control "public, max-age=86400"
+		header /assets/* Cache-Control "public, max-age=604800"
+		file_server
+	}
+
+	handle_errors {
+		@notFound expression {err.status_code} == 404
+		handle @notFound {
+			root * /srv/frontend
+			rewrite * /404.html
+			file_server
+		}
+	}
+}

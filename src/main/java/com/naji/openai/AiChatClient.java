@@ -28,6 +28,7 @@ import java.util.regex.Pattern;
 public class AiChatClient {
 
     private static final Logger log = LoggerFactory.getLogger(AiChatClient.class);
+    private static final int DEFAULT_MAX_TOKENS = 1000;
     private static final Pattern THINK_BLOCK = Pattern.compile("(?s)<think>.*?</think>");
     private static final Pattern RETRY_HINT =
             Pattern.compile("(?i)(?:retryDelay\"?\\s*:\\s*\"?|try again in\\s+)(\\d+(?:\\.\\d+)?)s");
@@ -59,6 +60,10 @@ public class AiChatClient {
     }
 
     public String chat(String prompt) {
+        return chat(prompt, DEFAULT_MAX_TOKENS);
+    }
+
+    public String chat(String prompt, int maxTokens) {
         List<AiProperties.Resolved> chain = props.activeChain();
         if (chain.isEmpty()) {
             throw AiServiceException.notConfigured();
@@ -78,7 +83,7 @@ public class AiChatClient {
 
             long started = System.nanoTime();
             try {
-                String answer = call(provider, prompt);
+                String answer = call(provider, prompt, maxTokens);
                 log.info("AI answered via {} ({}) in {} ms", provider.name(), provider.model(),
                         (System.nanoTime() - started) / 1_000_000);
                 return answer;
@@ -90,11 +95,12 @@ public class AiChatClient {
         throw AiServiceException.allFailed(attempts);
     }
 
-    private String call(AiProperties.Resolved provider, String prompt) {
+    private String call(AiProperties.Resolved provider, String prompt, int maxTokens) {
         HttpRequest request;
         try {
             String body = mapper.writeValueAsString(Map.of(
                     "model", provider.model(),
+                    "max_tokens", maxTokens,
                     "messages", List.of(Map.of("role", "user", "content", prompt))));
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(provider.url()))
                     .timeout(Duration.ofSeconds(Math.max(1, props.getTimeoutSeconds())))

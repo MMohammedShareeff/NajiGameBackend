@@ -36,6 +36,16 @@ public class RoomServiceImpl implements RoomService {
 
 
     @Transactional
+    public Room requireMember(String passCode, Long playerId) {
+        Room room = getRoomByPassCodeOrThrowException(passCode);
+        boolean isMember = room.getPlayers().stream().anyMatch(player -> player.getId().equals(playerId));
+        if (!isMember) {
+            throw new UnauthorizedAccessException(ExceptionsMessages.getUnauthorizedMessage());
+        }
+        return room;
+    }
+
+    @Transactional
     @Override
     public List<PlayerResponse> getPlayersInRoom(String passCode) {
         Room room = getRoomByPassCodeOrThrowException(passCode);

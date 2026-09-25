@@ -125,7 +125,7 @@ public class JWTUtils {
                     .build()
                     .parseClaimsJws(token)
                     .getBody();
-            logger.info("Parsed claims from token: {}", claims); // Log the claims for debugging
+            logger.debug("Parsed claims from token for player {}", claims.get("playerId"));
             return claims;
         } catch (JwtException e) {
             logger.error("Invalid JWT token: {}", e.getMessage());

@@ -10,7 +10,10 @@ import com.naji.leaderboard.Leaderboard;
 import com.naji.leaderboard.LeaderboardRepository;
 import com.naji.leaderboard.LeaderboardService;
 import com.naji.openai.AiServiceException;
+import com.naji.openai.ScenarioTheme;
+import com.naji.openai.ScenarioThemes;
 import com.naji.player.Player;
+import com.naji.redis.RedisService;
 import com.naji.player.playerscores.PlayerScores;
 import com.naji.player.playerscores.PlayerScoresRepository;
 import com.naji.room.Room;
@@ -75,17 +78,21 @@ public class GameService {
     private final Map<Long, Object> roomLocks = new ConcurrentHashMap<>();
     private final JWTUtils jwtUtils;
     private final PlatformTransactionManager transactionManager;
+    private final RedisService redisService;
 
     @Value("${game.round-seconds:90}")
     private int roundSeconds;
+
+    @Value("${game.daily-limit:10}")
+    private int dailyGameLimit;
 
     private Object lockFor(Long roomId) {
         return roomLocks.computeIfAbsent(roomId, id -> new Object());
     }
 
-    private record RoundState(int round, String scenario, long endsAtMillis, String phase) {
+    private record RoundState(int round, String scenario, String theme, long endsAtMillis, String phase) {
         RoundState withPhase(String newPhase) {
-            return new RoundState(round, scenario, endsAtMillis, newPhase);
+            return new RoundState(round, scenario, theme, endsAtMillis, newPhase);
         }
     }
 
@@ -151,7 +158,7 @@ public class GameService {
 
         long secondsLeft = Math.max(0, (state.endsAtMillis() - System.currentTimeMillis() + 999) / 1000);
         return new GameStateResponse(true, state.round(), LAST_ROUND, roundSeconds, secondsLeft,
-                state.scenario(), state.phase(), hasSubmitted, leaderboardText, submissionInfos(stateRoom.getId()),
+                state.scenario(), state.theme(), state.phase(), hasSubmitted, leaderboardText, submissionInfos(stateRoom.getId()),
                 PHASE_RESULTS.equals(state.phase()) ? LAST_RESULTS.get(stateRoom.getId()) : null, null, null);
     }
 
@@ -250,6 +257,12 @@ public class GameService {
             );
         }
 
+        if (room.getAdmin() != null && !RUNNING_ROOM_IDS.contains(room.getId())
+                && !redisService.tryConsumeDailyGame(room.getAdmin().getId(), dailyGameLimit)) {
+            throw new IllegalStateException(
+                    "You have reached today's limit of " + dailyGameLimit + " games. Please try again tomorrow.");
+        }
+
         if (!RUNNING_ROOM_IDS.add(room.getId())) {
             throw new IllegalStateException("A game is already in progress in this room.");
         }
@@ -291,9 +304,11 @@ public class GameService {
 
         Round round = new Round(currentRound);
         round.setRoom(room);
-        roundService.startRound(round);
+        ScenarioTheme theme = ScenarioThemes.forRound(currentRound);
+        String themeLabel = roundService.startRound(round, theme, LAST_ROUND);
         socketController.broadcastRoundStarts(
-                room.getId(), new RoundStartMessage(currentRound, LAST_ROUND, roundSeconds, round.getScenario()));
+                room.getId(),
+                new RoundStartMessage(currentRound, LAST_ROUND, roundSeconds, round.getScenario(), themeLabel));
 
         Long roundId = round.getId();
         Long roomId = room.getId();
@@ -301,7 +316,8 @@ public class GameService {
         ROUND_SUBMISSIONS.put(roomId, new ConcurrentHashMap<>());
         LAST_RESULTS.remove(roomId);
         ROUND_STATES.put(roomId, new RoundState(
-                currentRound, round.getScenario(), System.currentTimeMillis() + roundSeconds * 1000L, PHASE_ANSWERING));
+                currentRound, round.getScenario(), themeLabel,
+                System.currentTimeMillis() + roundSeconds * 1000L, PHASE_ANSWERING));
 
         pendingRoundEnds.put(roomId, scheduler.schedule(() -> runRoundEnd(roundId, roomId), roundSeconds, TimeUnit.SECONDS));
     }

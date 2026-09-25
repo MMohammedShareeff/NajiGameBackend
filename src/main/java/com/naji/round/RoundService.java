@@ -2,8 +2,11 @@ package com.naji.round;
 
 
 import com.naji.leaderboard.LeaderboardService;
+import com.naji.openai.Contestant;
 import com.naji.openai.JsonResponseMapper;
+import com.naji.openai.JudgeVerdict;
 import com.naji.openai.OpenAiService;
+import com.naji.openai.ScenarioTheme;
 import com.naji.player.Player;
 import com.naji.player.PlayerRepository;
 import com.naji.submission.Submission;
@@ -19,6 +22,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -38,6 +43,7 @@ public class RoundService {
     private final PlayerRepository playerRepository;
     private final JsonResponseMapper jsonResponseMapper;
     private final LeaderboardService leaderboardService;
+    private final ScenarioBankService scenarioBank;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     @Getter
     private final Map<String, String> responses = new HashMap<>();
@@ -49,11 +55,23 @@ public class RoundService {
     }
 
     @Transactional
-    public void startRound(Round round) {
+    public String startRound(Round round, ScenarioTheme fallbackTheme, int totalRounds) {
         round.setActive(true);
-        String scenario = getScenarioFromAPI();
-        round.setScenario(scenario);
+        List<String> earlierScenarios = roundRepository.findTop4ByRoomIdOrderByIdDesc(round.getRoom().getId()).stream()
+                .map(Round::getScenario)
+                .filter(Objects::nonNull)
+                .toList();
+
+        Optional<ScenarioBankService.BankScenario> banked = scenarioBank.pick(round.getNoOfRound(), earlierScenarios);
+        String themeLabel = fallbackTheme.label();
+        if (banked.isPresent()) {
+            round.setScenario(banked.get().text());
+            themeLabel = banked.get().theme();
+        } else {
+            round.setScenario(openAiService.getScenario(fallbackTheme, round.getNoOfRound(), totalRounds, earlierScenarios));
+        }
         roundRepository.save(round);
+        return themeLabel;
     }
 
     @Transactional
@@ -72,22 +90,42 @@ public class RoundService {
         List<PlayerRoundResult> results = new ArrayList<>();
         Set<Long> answeredPlayerIds = new HashSet<>();
 
-        for (SubmissionDTO submissionDTO : getAllSubmissionsInRound(roundId)) {
+        List<SubmissionDTO> submissions = getAllSubmissionsInRound(roundId);
+        List<Player> submitters = new ArrayList<>();
+        List<Contestant> contestants = new ArrayList<>();
+        for (SubmissionDTO submissionDTO : submissions) {
             Long playerId = submissionDTO.getPlayerId();
             Player player = playerRepository.findById(playerId)
                     .orElseThrow(() -> new IllegalArgumentException(String.format("player with id equals %d not found", playerId)));
+            submitters.add(player);
+            contestants.add(new Contestant(player.getUserName(), submissionDTO.getText()));
+        }
 
-            String aiResponse = openAiService.getResponse(round.getScenario(), submissionDTO.getText(), player.getUserName());
-            int score = Math.max(0, jsonResponseMapper.extractRating(aiResponse));
-            String commentary = jsonResponseMapper.extractCommentary(aiResponse);
-            if (commentary.isBlank()) {
-                commentary = SPEECHLESS_COMMENTARY;
+        List<Contestant> toJudge = contestants.stream()
+                .filter(contestant -> contestant.plan() != null && !contestant.plan().isBlank())
+                .toList();
+        List<JudgeVerdict> batchVerdicts = openAiService.judgeRound(round.getScenario(), toJudge);
+        int judgedIndex = 0;
+
+        for (int index = 0; index < submissions.size(); index++) {
+            SubmissionDTO submissionDTO = submissions.get(index);
+            Player player = submitters.get(index);
+            Contestant contestant = contestants.get(index);
+
+            JudgeVerdict verdict;
+            if (contestant.plan() == null || contestant.plan().isBlank()) {
+                verdict = new JudgeVerdict(0, NO_ANSWER_COMMENTARY);
+            } else {
+                verdict = batchVerdicts.get(judgedIndex++);
+                if (verdict == null) {
+                    verdict = judgeSingly(round.getScenario(), contestant);
+                }
             }
 
-            leaderboardService.updateRoundScoreForAPlayer(leaderboardId, playerId, score);
-            results.add(new PlayerRoundResult(
-                    player.getUserName(), submissionDTO.getText(), commentary, score, score > SURVIVAL_THRESHOLD));
-            answeredPlayerIds.add(playerId);
+            leaderboardService.updateRoundScoreForAPlayer(leaderboardId, player.getId(), verdict.rating());
+            results.add(new PlayerRoundResult(player.getUserName(), submissionDTO.getText(), verdict.commentary(),
+                    verdict.rating(), verdict.rating() > SURVIVAL_THRESHOLD));
+            answeredPlayerIds.add(player.getId());
         }
 
         for (Player player : round.getRoom().getPlayers()) {
@@ -97,6 +135,13 @@ public class RoundService {
             }
         }
         return results;
+    }
+
+    private JudgeVerdict judgeSingly(String scenario, Contestant contestant) {
+        String aiResponse = openAiService.getResponse(scenario, contestant.plan(), contestant.name());
+        int score = Math.max(0, jsonResponseMapper.extractRating(aiResponse));
+        String commentary = jsonResponseMapper.extractCommentary(aiResponse);
+        return new JudgeVerdict(score, commentary.isBlank() ? SPEECHLESS_COMMENTARY : commentary);
     }
 
     public List<SubmissionDTO> getAllSubmissionsInRound(Long roundId) {
@@ -110,10 +155,6 @@ public class RoundService {
             submissionDTOs.add(SubmissionMapper.toDTO(submission));
         }
         return submissionDTOs;
-    }
-
-    public String getScenarioFromAPI() {
-        return openAiService.getScenario();
     }
 
 

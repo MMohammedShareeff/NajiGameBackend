@@ -1,0 +1,22 @@
+spring:
+  jpa:
+    show-sql: false
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+  show-actuator: false
+server:
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+logging:
+  level:
+    root: INFO
+    org.springframework.security: INFO
+    org.springframework.validation: INFO
+    org.flywaydb: INFO
+    org.hibernate.SQL: OFF

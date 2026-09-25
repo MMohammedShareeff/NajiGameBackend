@@ -32,10 +32,8 @@ public class RedisService {
 
     public void saveVerificationCode(String email) {
         String code = generateVerificationCode();
-        logger.debug("Generated code for {}: {}", email, code);
 
         verificationTemplate.opsForValue().set("verification:" +  email, code, 5, TimeUnit.MINUTES);
-        logger.debug("Stored verification code in Redis: {}", code);
 
         String body = String.format("Your verification code for Naji game is %s\n" +
                 "If you did not request this code.. just ignore this email.", code);
@@ -59,6 +57,18 @@ public class RedisService {
 
     private static final int MAX_CODE_ATTEMPTS = 5;
     private static final int MAX_LOGIN_FAILURES = 10;
+
+    public boolean tryConsumeDailyGame(Long playerId, int dailyLimit) {
+        if (dailyLimit <= 0) {
+            return true;
+        }
+        String key = "gamesToday:" + playerId + ":" + java.time.LocalDate.now();
+        Long started = verificationTemplate.opsForValue().increment(key);
+        if (started != null && started == 1) {
+            verificationTemplate.expire(key, 26, TimeUnit.HOURS);
+        }
+        return started != null && started <= dailyLimit;
+    }
 
     public boolean isLoginLocked(String userName) {
         String failures = verificationTemplate.opsForValue().get("loginFails:" + userName);
@@ -108,13 +118,11 @@ public class RedisService {
 
     public String getVerificationCode(String email) {
         String code = verificationTemplate.opsForValue().get("verification:" + email);
-        logger.info("Retrieved verification code for email {}: {}", email, code);
         return code;
     }
 
     public boolean validateVerificationCode(String email, String code) {
         String storedCode = getVerificationCode(email);
-        logger.info("Validating code for email {}: expected {}, received {}", email, storedCode, code);
         String attemptsKey = "codeAttempts:" + email;
 
         if (Objects.nonNull(storedCode) && storedCode.equals(code)) {

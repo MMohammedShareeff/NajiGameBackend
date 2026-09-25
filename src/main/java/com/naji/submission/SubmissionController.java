@@ -30,12 +30,4 @@ public class SubmissionController {
         }
 
     }
-
-    @GetMapping("/by-id/{submissionId}")
-    public ApiResponse<?> getSubmissionById(@PathVariable Long submissionId) {
-        Optional<SubmissionDTO> submissionResponse = Optional.ofNullable(submissionService.getSubmissionById(submissionId));
-        return submissionResponse.isPresent()
-                ? new ApiResponse<>(null, HttpStatus.NO_CONTENT)
-                : new ApiResponse<>(submissionResponse, HttpStatus.OK);
-    }
 }

@@ -31,11 +31,6 @@ public class PlayerController {
     private final AuthenticationManager authenticationManager;
     private final RedisService redisService;
 
-    @GetMapping("/all")
-    public ApiResponse<?> getAllPlayers() {
-        return new ApiResponse<>(playerService.getAllPlayers(), HttpStatus.OK);
-    }
-
     @PostMapping("/register")
     public ApiResponse<String> registerPlayer(@Validated(OnCreate.class) @RequestBody PlayerRequest playerRequest) {
         playerService.registerPlayer(playerRequest);
@@ -85,7 +80,16 @@ public class PlayerController {
     }
 
     @GetMapping("/{id}")
-    public ApiResponse<PlayerResponse> getPlayerById(@PathVariable Long id) {
+    public ApiResponse<?> getPlayerById(@PathVariable Long id,
+                                        @RequestHeader(value = "Authorization", required = false) String authHeader) {
+        String token = jwtUtils.getTokenFromHeader(authHeader);
+        if (token == null || !jwtUtils.validateJwtToken(token)) {
+            return new ApiResponse<>("your token is either expired or with wrong format", HttpStatus.UNAUTHORIZED);
+        }
+        if (!jwtUtils.getPlayerIdFromToken(token).equals(id)) {
+            return new ApiResponse<>("you can only view your own account", HttpStatus.FORBIDDEN);
+        }
+
         Player player = playerService.getPlayerByIdOrThrowException(id);
         return new ApiResponse<>(PlayerMapper.toResponse(player), HttpStatus.OK);
     }

@@ -10,6 +10,7 @@ import com.naji.leaderboard.Leaderboard;
 import com.naji.leaderboard.LeaderboardRepository;
 import com.naji.leaderboard.LeaderboardService;
 import com.naji.openai.AiServiceException;
+import com.naji.openai.GameLanguage;
 import com.naji.openai.ScenarioTheme;
 import com.naji.openai.ScenarioThemes;
 import com.naji.player.Player;
@@ -56,6 +57,7 @@ public class GameService {
     private static final Map<Long, RoundResultsMessage> LAST_RESULTS = new ConcurrentHashMap<>();
     private static final Map<Long, String> FINAL_LEADERBOARDS = new ConcurrentHashMap<>();
     private static final Map<Long, String> STOP_MESSAGES = new ConcurrentHashMap<>();
+    private static final Map<Long, String> ROOM_LANGUAGES = new ConcurrentHashMap<>();
     private static final String PHASE_ANSWERING = "answering";
     private static final String PHASE_JUDGING = "judging";
     private static final String PHASE_RESULTS = "results";
@@ -90,9 +92,10 @@ public class GameService {
         return roomLocks.computeIfAbsent(roomId, id -> new Object());
     }
 
-    private record RoundState(int round, String scenario, String theme, long endsAtMillis, String phase) {
+    private record RoundState(int round, String scenario, Map<String, String> scenarios, String theme, long endsAtMillis,
+                               String phase) {
         RoundState withPhase(String newPhase) {
-            return new RoundState(round, scenario, theme, endsAtMillis, newPhase);
+            return new RoundState(round, scenario, scenarios, theme, endsAtMillis, newPhase);
         }
     }
 
@@ -106,6 +109,7 @@ public class GameService {
         ROUND_STATES.remove(roomId);
         ROUND_SUBMISSIONS.remove(roomId);
         LAST_RESULTS.remove(roomId);
+        ROOM_LANGUAGES.remove(roomId);
     }
 
     private static List<RoundSubmissionsMessage.SubmissionInfo> submissionInfos(Long roomId) {
@@ -158,7 +162,7 @@ public class GameService {
 
         long secondsLeft = Math.max(0, (state.endsAtMillis() - System.currentTimeMillis() + 999) / 1000);
         return new GameStateResponse(true, state.round(), LAST_ROUND, roundSeconds, secondsLeft,
-                state.scenario(), state.theme(), state.phase(), hasSubmitted, leaderboardText, submissionInfos(stateRoom.getId()),
+                state.scenario(), state.scenarios(), state.theme(), state.phase(), hasSubmitted, leaderboardText, submissionInfos(stateRoom.getId()),
                 PHASE_RESULTS.equals(state.phase()) ? LAST_RESULTS.get(stateRoom.getId()) : null, null, null);
     }
 
@@ -220,6 +224,7 @@ public class GameService {
         LAST_RESULTS.remove(stoppedRoom.getId());
         FINAL_LEADERBOARDS.remove(stoppedRoom.getId());
         STOP_MESSAGES.remove(stoppedRoom.getId());
+        ROOM_LANGUAGES.remove(stoppedRoom.getId());
         if (!RUNNING_ROOM_IDS.remove(stoppedRoom.getId())) {
             throw new IllegalStateException("There is no game in progress in this room.");
         }
@@ -247,7 +252,15 @@ public class GameService {
     }
 
     @Transactional
-    public void startGame(String passCode, String token) {
+    public void setLanguage(String passCode, String token, String lang) {
+        Room room = loadRoomAsAdmin(passCode, token);
+        if (RUNNING_ROOM_IDS.contains(room.getId())) {
+            ROOM_LANGUAGES.put(room.getId(), GameLanguage.normalize(lang));
+        }
+    }
+
+    @Transactional
+    public void startGame(String passCode, String token, String lang) {
 
         Room room = loadRoomAsAdmin(passCode, token);
 
@@ -268,6 +281,7 @@ public class GameService {
         }
         FINAL_LEADERBOARDS.remove(room.getId());
         STOP_MESSAGES.remove(room.getId());
+        ROOM_LANGUAGES.put(room.getId(), GameLanguage.normalize(lang));
 
         try {
             Leaderboard leaderboard = Leaderboard.builder()
@@ -305,10 +319,11 @@ public class GameService {
         Round round = new Round(currentRound);
         round.setRoom(room);
         ScenarioTheme theme = ScenarioThemes.forRound(currentRound);
-        String themeLabel = roundService.startRound(round, theme, LAST_ROUND);
+        String themeLabel = roundService.startRound(round, theme, LAST_ROUND, ROOM_LANGUAGES.getOrDefault(room.getId(), GameLanguage.ENGLISH));
+        Map<String, String> scenarios = roundService.scenarioTranslations(round.getScenario());
         socketController.broadcastRoundStarts(
                 room.getId(),
-                new RoundStartMessage(currentRound, LAST_ROUND, roundSeconds, round.getScenario(), themeLabel));
+                new RoundStartMessage(currentRound, LAST_ROUND, roundSeconds, round.getScenario(), scenarios, themeLabel));
 
         Long roundId = round.getId();
         Long roomId = room.getId();
@@ -316,7 +331,7 @@ public class GameService {
         ROUND_SUBMISSIONS.put(roomId, new ConcurrentHashMap<>());
         LAST_RESULTS.remove(roomId);
         ROUND_STATES.put(roomId, new RoundState(
-                currentRound, round.getScenario(), themeLabel,
+                currentRound, round.getScenario(), scenarios, themeLabel,
                 System.currentTimeMillis() + roundSeconds * 1000L, PHASE_ANSWERING));
 
         pendingRoundEnds.put(roomId, scheduler.schedule(() -> runRoundEnd(roundId, roomId), roundSeconds, TimeUnit.SECONDS));
@@ -390,7 +405,7 @@ public class GameService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         ExceptionsMessages.getResourceNotFoundMessage(Round.class)
                 ));
-        List<PlayerRoundResult> results = roundService.processSubmissions(round.getId());
+        List<PlayerRoundResult> results = roundService.processSubmissions(round.getId(), ROOM_LANGUAGES.getOrDefault(room.getId(), GameLanguage.ENGLISH));
 
         if (!RUNNING_ROOM_IDS.contains(room.getId())) {
             return;

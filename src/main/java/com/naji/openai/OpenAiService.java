@@ -27,8 +27,7 @@ public class OpenAiService {
             Invent ONE scenario for round %d of %d.
             Theme: %s - %s.
             Rules:
-            - Use simple, everyday English at B1 level: common words that most people know, short sentences. \
-            No rare, fancy or technical words, no slang, and no hard idioms.
+            - %s
             - One or two short sentences, at most 30 words, written on a single line.
             - Write it in the second person ("You ...") and make it clear, specific and surprising.
             - Style example only, do not copy it: "A big storm hits your camp at night. The river is rising fast \
@@ -37,6 +36,18 @@ public class OpenAiService {
             - Keep it friendly and fun for all ages: no gore, no real people, no politics.
             %s
             Reply with the scenario only: no quotes, no title, no introduction, no explanation.""";
+
+    private static final String ENGLISH_SCENARIO_RULE = "Use simple, everyday English at B1 level: common words "
+            + "that most people know, short sentences. No rare, fancy or technical words, no slang, and no hard idioms.";
+
+    private static final String ARABIC_SCENARIO_RULE = "Write the scenario in simple Modern Standard Arabic, not "
+            + "in English: common everyday words that most people know, short sentences. No rare, fancy or technical "
+            + "words, no slang, and no hard idioms.";
+
+    private static final String ARABIC_JUDGE_RULE = "\n\nLANGUAGE: Write every story in simple Modern Standard "
+            + "Arabic (fusha, not a spoken dialect) with everyday words, and keep each contestant's name exactly as written. Everything else in "
+            + "the reply format, including the JSON keys and the RESULT and RATING lines, must stay in English "
+            + "exactly as specified.";
 
     private static final String JUDGE_RULES = """
             You are a sharp-tongued stand-up comedian hosting a survival game show.
@@ -67,29 +78,32 @@ public class OpenAiService {
         this.client = client;
     }
 
-    public String getScenario(ScenarioTheme theme, int roundNumber, int totalRounds, List<String> earlierScenarios) {
+    public String getScenario(ScenarioTheme theme, int roundNumber, int totalRounds, List<String> earlierScenarios,
+                              String lang) {
         return cleanScenario(client.chat(
-                buildScenarioPrompt(theme, roundNumber, totalRounds, earlierScenarios), SCENARIO_MAX_TOKENS));
+                buildScenarioPrompt(theme, roundNumber, totalRounds, earlierScenarios, lang), SCENARIO_MAX_TOKENS));
     }
 
     static String buildScenarioPrompt(ScenarioTheme theme, int roundNumber, int totalRounds,
-                                      List<String> earlierScenarios) {
+                                      List<String> earlierScenarios, String lang) {
         String avoidRepeats = earlierScenarios.isEmpty()
                 ? ""
                 : "Do not repeat or resemble these earlier scenarios:\n- "
                 + String.join("\n- ", earlierScenarios.stream().map(text -> oneLine(text, MAX_SCENARIO_CHARS)).toList());
-        return SCENARIO_PROMPT.formatted(roundNumber, totalRounds, theme.label(), theme.brief(), avoidRepeats);
+        String languageRule = GameLanguage.isArabic(lang) ? ARABIC_SCENARIO_RULE : ENGLISH_SCENARIO_RULE;
+        return SCENARIO_PROMPT.formatted(roundNumber, totalRounds, theme.label(), theme.brief(), languageRule,
+                avoidRepeats);
     }
 
-    public String getResponse(String scenario, String playerAnswer, String playerName) {
-        return client.chat(buildEvaluationPrompt(scenario, playerAnswer, playerName), SINGLE_JUDGE_MAX_TOKENS);
+    public String getResponse(String scenario, String playerAnswer, String playerName, String lang) {
+        return client.chat(buildEvaluationPrompt(scenario, playerAnswer, playerName, lang), SINGLE_JUDGE_MAX_TOKENS);
     }
 
-    public List<JudgeVerdict> judgeRound(String scenario, List<Contestant> contestants) {
+    public List<JudgeVerdict> judgeRound(String scenario, List<Contestant> contestants, String lang) {
         if (contestants.isEmpty()) {
             return List.of();
         }
-        String raw = client.chat(buildBatchPrompt(scenario, contestants), BATCH_JUDGE_MAX_TOKENS);
+        String raw = client.chat(buildBatchPrompt(scenario, contestants, lang), BATCH_JUDGE_MAX_TOKENS);
         List<JudgeVerdict> verdicts = parseBatch(raw, contestants.size());
         long missing = verdicts.stream().filter(Objects::isNull).count();
         if (missing > 0) {
@@ -99,8 +113,8 @@ public class OpenAiService {
         return verdicts;
     }
 
-    static String buildEvaluationPrompt(String scenario, String playerAnswer, String playerName) {
-        return JUDGE_RULES + """
+    static String buildEvaluationPrompt(String scenario, String playerAnswer, String playerName, String lang) {
+        return JUDGE_RULES + judgeLanguageRule(lang) + """
 
 
                 Scenario: %s
@@ -126,7 +140,7 @@ public class OpenAiService {
                         clip(playerAnswer == null ? "" : playerAnswer.trim(), MAX_PLAN_CHARS));
     }
 
-    static String buildBatchPrompt(String scenario, List<Contestant> contestants) {
+    static String buildBatchPrompt(String scenario, List<Contestant> contestants, String lang) {
         StringBuilder plans = new StringBuilder();
         for (int index = 0; index < contestants.size(); index++) {
             Contestant contestant = contestants.get(index);
@@ -136,7 +150,7 @@ public class OpenAiService {
                     .append("\n</plan>\n");
         }
 
-        return JUDGE_RULES + """
+        return JUDGE_RULES + judgeLanguageRule(lang) + """
 
 
                 Scenario: %s
@@ -198,6 +212,10 @@ public class OpenAiService {
         text = text.replaceFirst("(?i)^\\**scenario\\**\\s*[:\\-]\\s*", "");
         text = text.replaceAll("^[\\s\"'“”‘’*\\[(]+|[\\s\"'“”‘’*\\])]+$", "");
         return clip(text, MAX_SCENARIO_CHARS);
+    }
+
+    private static String judgeLanguageRule(String lang) {
+        return GameLanguage.isArabic(lang) ? ARABIC_JUDGE_RULE : "";
     }
 
     private static String oneLine(String text, int max) {

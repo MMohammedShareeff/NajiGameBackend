@@ -27,10 +27,21 @@ public class GameController {
         return new ApiResponse<>("game stopped successfully", HttpStatus.OK);
     }
 
-    @PostMapping("/start")
-    public ApiResponse<String> startGame(@RequestParam String passCode, @RequestHeader("Authorization") String authHeader) {
+    @PostMapping("/language")
+    public ApiResponse<String> setLanguage(@RequestParam String passCode,
+                                           @RequestParam String lang,
+                                           @RequestHeader("Authorization") String authHeader) {
         String token = jwtUtils.getTokenFromHeader(authHeader);
-        gameService.startGame(passCode, token);
+        gameService.setLanguage(passCode, token, lang);
+        return new ApiResponse<>("language updated", HttpStatus.OK);
+    }
+
+    @PostMapping("/start")
+    public ApiResponse<String> startGame(@RequestParam String passCode,
+                                         @RequestParam(defaultValue = "en") String lang,
+                                         @RequestHeader("Authorization") String authHeader) {
+        String token = jwtUtils.getTokenFromHeader(authHeader);
+        gameService.startGame(passCode, token, lang);
         return new ApiResponse<>("game started successfully", HttpStatus.OK);
     }
 }

@@ -1,76 +1,64 @@
-# 🕹️ Online Multiplayer Survival Game
+# Naji: Backend
 
-This is an **online multiplayer survival game** built as an **internship graduation project**.  
-Originally developed and managed on **Bitbucket**, but due to branch mirroring issues, the project was moved.
+The API behind **Naji**, an online multiplayer survival game. A room of up to 5 players gets a survival scenario each round, everyone writes how they would survive, and an AI judge scores every answer. A game is 5 rounds and ends with a leaderboard. Everything runs live over WebSockets.
 
----
+The web client is in the sibling repo `NajiGameFrontend`.
 
-## 💡 Idea
+## Features
 
-A **survival game** consisting of multiple rounds.  
-In each round, a **unique survival scenario** is presented to all players.  
-Each player must submit how they would act to survive in that situation.
+- Accounts with email verification codes, password reset, profile changes confirmed by email, and guest play with an optional nickname
+- Rooms with a host, kick, invites (by username or from a friends list) and a friends list
+- Timed rounds (default 90 seconds), early finish when everyone has answered
+- AI judging: score 0 to 10, a short funny comment, survived when the score is above 5
+- Themed scenario arc (real world, comedy, fantasy and sci-fi, surreal, epic finale)
+- English and Arabic game content: scenario bank in both languages, AI comments in the room language
+- Per-player dashboard (games, wins, streak, best and average score)
+- Live updates: players, rounds, submissions, results, leaderboard, invites
 
-OpenAI API is used to:
-- Generate realistic survival scenarios.
-- Rate each player's response with detailed feedback:  
-  - Why it’s a good or bad choice.
-- Provide a **final decision**: whether the player survived or not.
+## Tech stack
 
----
+Spring Boot 3.3 (Java 17), PostgreSQL with Flyway migrations, Redis (verification codes, invites, rate limits, daily game counters), STOMP over SockJS WebSockets, JWT authentication. The AI provider chain (Groq, Gemini, OpenRouter, OpenAI) is tried in the order set by `AI_PROVIDER_ORDER`.
 
-## 🚀 Features
+## Run it locally
 
-- **User Authentication:**
-  - Login and Registration
-  - Email verification (via code)
-  - JWT-based authentication and authorization
+You need Docker. From `src/main/resources`:
 
-- **Game Mechanics:**
-  - Players can **create rooms** and **invite** others (up to 5 players per room)
-  - Real-time communication using **WebSockets**
-  - Game events (rounds, responses, results) are broadcasted in real time
+```
+docker compose -f docker-compose.yaml up -d --build --force-recreate app
+```
 
-- **AI Integration:**
-  - Scenario generation per round
-  - Rating system with justification
-  - Final survival verdict based on responses
+The API is then on http://localhost:8080. Put your keys in `src/main/resources/.env` (git-ignored); the names are listed in `deploy/.env.example`. At least one AI key is required to play.
 
----
-
-## 🛠️ Tech Stack
-
-- **Backend:** Spring Boot + Java
-- **Database:** PostgreSQL
-- **Cache/Temporary Store:** Redis (used for storing verification codes)
-- **AI Service:** OpenAI API
-- **Real-time Communication:** WebSockets
-- **Project Management:** Jira
-- **Version Control:** Bitbucket
-
----
-
-## 📧 Testing emails locally (no real mailbox needed)
-
-Verification, password reset and profile-change codes are sent by email. To catch them locally, start the stack with the Mailpit override from `src/main/resources`:
+To read verification emails without a real mailbox, use the Mailpit override and open http://localhost:8025:
 
 ```
 docker compose -f docker-compose.yaml -f docker-compose.mail.yaml up -d --build app mailpit
 ```
 
-Open http://localhost:8025 to read every email the app sends. Start without the override file (`docker compose -f docker-compose.yaml up -d --build app`) to use the real SMTP settings from `.env` again. The sender address defaults to `SPRING_MAIL_USERNAME`, or set `NAJI_MAIL_FROM` to change it.
+Then start the web client from `NajiGameFrontend` (see its README).
 
----
+## Main endpoints
 
-## ⚠️ Notes
+| Area | Endpoints |
+| --- | --- |
+| Player | `POST /player/register`, `/login`, `/guest`; `GET /player/me`; `PUT /player/update`, `/reset-password` |
+| Verification | `POST /verification/verify-email`, `/verify-update` |
+| Room | `POST /room/create`, `/add-player`, `/leave`; `GET /room/get-players`, `/room-id`, `/admin`; `DELETE /room/kick-player/{name}` |
+| Game | `POST /game/start?passCode&lang=en\|ar`, `/game/stop`, `/game/language`; `GET /game/state` |
+| Answers | `POST /Submission/create?text=` |
+| Social | `/invite/*`, `/friends/*` |
+| Stats | `GET /dashboard/get-by-id/{playerId}` |
 
-> 🔄 Mirroring Bitbucket branches failed — manual migration was required.
+Live topics (SockJS endpoint `/game-webSocket?token=<jwt>`): `/topic/room/{id}/updates|round|submissions|results|leaderboard|final_leaderboard|players` and `/user/queue/invites`.
 
----
+## Security notes
 
-## 📌 Status
+Everything except register, login, guest, reset-password and email verification needs a JWT. Login is locked for 10 minutes after 10 failures, sensitive endpoints are rate limited per IP, and CORS is restricted in production with `CORS_ALLOWED_ORIGINS`. Secrets only live in `.env` files that are git-ignored; never commit them.
 
-This project demonstrates backend engineering, real-time systems, and AI service integration in a collaborative team environment.
+## Deploy
 
----
+`deploy/README.md` explains how to run the whole stack (app, PostgreSQL, Redis and a Caddy web server with automatic HTTPS) on one small server, including backups and updates.
 
+## Project notes
+
+Built as an internship graduation project. Games are kept in memory per room, so run a single app instance; a restart ends games in progress.

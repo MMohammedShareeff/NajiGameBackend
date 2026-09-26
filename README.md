@@ -61,4 +61,4 @@ Everything except register, login, guest, reset-password and email verification 
 
 ## Project notes
 
-Built as an internship graduation project. Games are kept in memory per room, so run a single app instance; a restart ends games in progress.
+Built as an internship graduation project at 2024 and updated at september-2026. Games are kept in memory per room, so run a single app instance; a restart ends games in progress.
